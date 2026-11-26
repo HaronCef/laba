@@ -1,20 +1,22 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 
-test('конфіг: значення за замовчуванням і перевірка', () => {
-  const ok = loadConfig({});
-  assert.ok(ok.ok);
-  assert.equal(ok.value.port, 3000);
-  assert.equal(ok.value.maxRooms, 20);
+describe('config', () => {
+  it('значення за замовчуванням', () => {
+    const ok = loadConfig({});
+    expect(ok.ok && ok.value.port).toBe(3000);
+    expect(ok.ok && ok.value.maxRooms).toBe(20);
+  });
 
-  const port = loadConfig({ PORT: '8080', MAX_PLAYERS: '' });
-  assert.ok(port.ok);
-  assert.equal(port.value.port, 8080);
-  assert.equal(port.value.maxPlayersPerRoom, 8); // порожнє = default
+  it('порожній рядок = default, число з рядка', () => {
+    const port = loadConfig({ PORT: '8080', MAX_PLAYERS: '' });
+    expect(port.ok && port.value.port).toBe(8080);
+    expect(port.ok && port.value.maxPlayersPerRoom).toBe(8);
+  });
 
-  const bad = loadConfig({ PORT: 'abc' });
-  assert.equal(bad.ok, false);
-  assert.equal(loadConfig({ PORT: '70000' }).ok, false);
-  assert.equal(loadConfig({ MAX_PLAYERS: '1' }).ok, false);
+  it('неправильні значення - помилка, а не виняток', () => {
+    expect(loadConfig({ PORT: 'abc' }).ok).toBe(false);
+    expect(loadConfig({ PORT: '70000' }).ok).toBe(false);
+    expect(loadConfig({ MAX_PLAYERS: '1' }).ok).toBe(false);
+  });
 });

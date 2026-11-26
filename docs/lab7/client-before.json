@@ -1,0 +1,156 @@
+{
+  "label": "before",
+  "seconds": 30,
+  "timing": {
+    "gc": {
+      "minor": 17,
+      "minorMs": 30.77,
+      "major": 10,
+      "majorMs": 37.89
+    },
+    "frame": {
+      "n": 1840,
+      "p50": 0.6,
+      "p95": 0.9,
+      "p99": 1.2,
+      "max": 5.8
+    },
+    "rafGap": {
+      "n": 1839,
+      "p50": 16.7,
+      "p95": 16.8,
+      "p99": 17,
+      "max": 29.6
+    },
+    "simulate": {
+      "n": 920,
+      "p50": 0.1,
+      "p95": 0.2,
+      "p99": 0.3,
+      "max": 3.1
+    },
+    "render": {
+      "n": 1840,
+      "p50": 0.6,
+      "p95": 0.8,
+      "p99": 1,
+      "max": 5.8
+    },
+    "decode": {
+      "n": 921,
+      "p50": 0.1,
+      "p95": 0.1,
+      "p99": 0.2,
+      "max": 0.2
+    },
+    "reconcile": {
+      "n": 921,
+      "p50": 0,
+      "p95": 0.1,
+      "p99": 0.1,
+      "max": 0.1
+    },
+    "entities": 40,
+    "over16": 0,
+    "longGaps": 3
+  },
+  "profile": {
+    "gc": {
+      "minor": 16,
+      "minorMs": 36.7,
+      "major": 10,
+      "majorMs": 47.51
+    },
+    "selfTop": [
+      {
+        "fn": "drawBackground (main.js:68)",
+        "ms": 389.97,
+        "pct": 1.26
+      },
+      {
+        "fn": "fillText (:0)",
+        "ms": 212.23,
+        "pct": 0.69
+      },
+      {
+        "fn": "save (:0)",
+        "ms": 111.38,
+        "pct": 0.36
+      },
+      {
+        "fn": "fill (:0)",
+        "ms": 109.45,
+        "pct": 0.35
+      },
+      {
+        "fn": "drawImage (:0)",
+        "ms": 107.94,
+        "pct": 0.35
+      },
+      {
+        "fn": "requestAnimationFrame (:0)",
+        "ms": 106.42,
+        "pct": 0.34
+      },
+      {
+        "fn": "send (:0)",
+        "ms": 74.41,
+        "pct": 0.24
+      },
+      {
+        "fn": "render (main.js:21775)",
+        "ms": 64.77,
+        "pct": 0.21
+      }
+    ],
+    "special": [
+      {
+        "fn": "(program) (:0)",
+        "ms": 7334.52
+      },
+      {
+        "fn": "(idle) (:0)",
+        "ms": 21564.26
+      },
+      {
+        "fn": "(garbage collector) (:0)",
+        "ms": 134.31
+      }
+    ],
+    "allocTop": [
+      {
+        "fn": "drawBackground (main.js:68)",
+        "kb": 36349
+      },
+      {
+        "fn": "#toDrawable (main.js:21484)",
+        "kb": 9498
+      },
+      {
+        "fn": "(main.js)",
+        "kb": 8244
+      },
+      {
+        "fn": "readEntity (main.js:21125)",
+        "kb": 7727
+      },
+      {
+        "fn": "#interpolationPairs (main.js:21465)",
+        "kb": 5160
+      },
+      {
+        "fn": "renderList (main.js:21426)",
+        "kb": 4567
+      },
+      {
+        "fn": "draw (main.js:21546)",
+        "kb": 3731
+      },
+      {
+        "fn": "drawExplosions (main.js:224)",
+        "kb": 2946
+      }
+    ],
+    "allocTotalKb": 99375
+  }
+}

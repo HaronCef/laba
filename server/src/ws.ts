@@ -1,39 +1,25 @@
 import type { Server } from 'node:http';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { decodeInput } from 'shared/codec/binary.ts';
-import {
-  CLOSE,
-  parseClientMessage,
-  serverMessage,
-  type ClientMessage,
-  type Input,
-  type Netsim,
-} from 'shared/protocol.ts';
+import { CLOSE, parseClientMessage, serverMessage, type ClientMessage, type Input, type Netsim } from 'shared/protocol.ts';
 import { asPlayerId, assertNever, type PlayerId } from 'shared/types.ts';
 import { NO_NETSIM, throughNetsim } from './netsim.ts';
 import type { PlayerConn, Room, RoomManager } from './rooms.ts';
+import { TokenBucket } from './tokenBucket.ts';
+import { startHeartbeat } from './heartbeat.ts';
 
 const MAX_MESSAGE_BYTES = 2048; // maxPayload для ws
 const JOIN_TIMEOUT_MS = 5000;
 const PING_INTERVAL_MS = 15000;
 const MAX_MISSED_PONGS = 2;
 
-// token bucket: у "відрі" size жетонів, щосекунди додається refill. Повідомлення забирає жетон.
-interface BucketRule {
-  readonly size: number;
-  readonly refill: number;
-}
-const CHAT_BUCKET: BucketRule = { size: 10, refill: 5 };
-const INPUT_BUCKET: BucketRule = { size: 45, refill: 35 }; // клієнт законно шле 30 input/с
+// token bucket (tokenBucket.ts): розмір відра і скільки жетонів додається за секунду
+const CHAT_BUCKET = { size: 10, refill: 5 };
+const INPUT_BUCKET = { size: 45, refill: 35 }; // клієнт законно шле 30 input/с
 
 // повільний клієнт: неважливе (чат, знімки) не шлемо, а якщо зовсім не встигає - закриваємо
 const SLOW_BYTES = 64 * 1024;
 const TOO_SLOW_BYTES = 1024 * 1024;
-
-interface Bucket {
-  tokens: number;
-  last: number;
-}
 
 // Стан одного з'єднання. У JS я дописував його прямо в об'єкт сокета (socket.state = ...),
 // TypeScript на це сказав "у WebSocket немає поля state" - тепер він живе в окремій Map.
@@ -44,8 +30,8 @@ interface ConnState {
   room: Room | null;
   missedPongs: number;
   closing: boolean;
-  readonly chatBucket: Bucket;
-  readonly inputBucket: Bucket;
+  readonly chatBucket: TokenBucket;
+  readonly inputBucket: TokenBucket;
   net: Netsim;
   bytesIn: number;
   bytesOut: number;
@@ -57,22 +43,6 @@ interface SendOptions {
 }
 
 let nextPlayerId = 1;
-
-function makeBucket(rule: BucketRule): Bucket {
-  return { tokens: rule.size, last: Date.now() };
-}
-
-function takeToken(bucket: Bucket, rule: BucketRule): boolean {
-  const now = Date.now();
-  bucket.tokens = Math.min(
-    rule.size,
-    bucket.tokens + ((now - bucket.last) / 1000) * rule.refill,
-  );
-  bucket.last = now;
-  if (bucket.tokens < 1) return false;
-  bucket.tokens -= 1;
-  return true;
-}
 
 // ws може дати Buffer, ArrayBuffer або масив Buffer (якщо повідомлення прийшло шматками).
 // У JS я рахував data.length - для ArrayBuffer це було б undefined, і лічильник став би NaN.
@@ -89,11 +59,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
 
   // ---------- відправка з урахуванням повільних клієнтів і штучної мережі ----------
 
-  function send(
-    state: ConnState,
-    data: string | ArrayBuffer,
-    { important = true, droppable = false }: SendOptions = {},
-  ): void {
+  function send(state: ConnState, data: string | ArrayBuffer, { important = true, droppable = false }: SendOptions = {}): void {
     throughNetsim(
       state.net,
       () => {
@@ -108,8 +74,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
           stats.droppedForSlowClients++;
           return;
         }
-        state.bytesOut +=
-          typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength;
+        state.bytesOut += typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength;
         socket.send(data);
       },
       { droppable },
@@ -135,6 +100,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
     };
     room.on('join', sendRoster);
     room.on('leave', sendRoster);
+    room.on('bots', sendRoster);
     room.on('chat', (from, text) => {
       const msg = serverMessage({ type: 'chat', from: from.name, text, t: Date.now() });
       for (const member of room.players.values()) {
@@ -158,8 +124,8 @@ export function createWsServer(server: Server, rooms: RoomManager) {
       room: null,
       missedPongs: 0,
       closing: false,
-      chatBucket: makeBucket(CHAT_BUCKET),
-      inputBucket: makeBucket(INPUT_BUCKET),
+      chatBucket: new TokenBucket(CHAT_BUCKET.size, CHAT_BUCKET.refill),
+      inputBucket: new TokenBucket(INPUT_BUCKET.size, INPUT_BUCKET.refill),
       net: NO_NETSIM,
       bytesIn: 0,
       bytesOut: 0,
@@ -188,7 +154,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
 
       // бінарне повідомлення може бути лише input; декодер сам перевіряє довжину, версію, діапазони
       if (isBinary) {
-        if (!takeToken(state.inputBucket, INPUT_BUCKET)) {
+        if (!state.inputBucket.take()) {
           closeWithError(state, CLOSE.RATE_LIMIT, 'too many inputs');
           return;
         }
@@ -209,12 +175,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
       }
       const msg = parsed.value;
       const isInput = msg.type === 'input';
-      if (
-        !takeToken(
-          isInput ? state.inputBucket : state.chatBucket,
-          isInput ? INPUT_BUCKET : CHAT_BUCKET,
-        )
-      ) {
+      if (!(isInput ? state.inputBucket : state.chatBucket).take()) {
         closeWithError(state, CLOSE.RATE_LIMIT, 'too many messages');
         return;
       }
@@ -234,9 +195,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
   function receiveInput(state: ConnState, input: Input): void {
     const room = state.room;
     if (!room) return;
-    throughNetsim(state.net, () => room.match?.pushInput(state.id, input), {
-      droppable: true,
-    });
+    throughNetsim(state.net, () => room.match?.pushInput(state.id, input), { droppable: true });
   }
 
   function handle(state: ConnState, msg: ClientMessage, joinTimer: NodeJS.Timeout): void {
@@ -245,9 +204,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
         return join(state, msg, joinTimer);
       case 'ping':
         // відповідаємо через ту саму штучну мережу, тому RTT включає затримку
-        throughNetsim(state.net, () =>
-          send(state, serverMessage({ type: 'pong', t: msg.t })),
-        );
+        throughNetsim(state.net, () => send(state, serverMessage({ type: 'pong', t: msg.t })));
         return;
       case 'netsim':
         state.net = { lag: msg.lag, jitter: msg.jitter, drop: msg.drop };
@@ -262,22 +219,14 @@ export function createWsServer(server: Server, rooms: RoomManager) {
     }
   }
 
-  function join(
-    state: ConnState,
-    msg: Extract<ClientMessage, { type: 'join' }>,
-    joinTimer: NodeJS.Timeout,
-  ): void {
+  function join(state: ConnState, msg: Extract<ClientMessage, { type: 'join' }>, joinTimer: NodeJS.Timeout): void {
     if (state.room) {
       closeWithError(state, CLOSE.BAD_MESSAGE, 'already joined');
       return;
     }
     const room = rooms.get(msg.room);
     if (!room || room.isFull) {
-      closeWithError(
-        state,
-        CLOSE.ROOM_UNAVAILABLE,
-        room ? 'room is full' : 'no such room',
-      );
+      closeWithError(state, CLOSE.ROOM_UNAVAILABLE, room ? 'room is full' : 'no such room');
       return;
     }
     clearTimeout(joinTimer);
@@ -306,10 +255,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
   }
 
   // повідомлення, які мають сенс лише після join
-  function inRoom(
-    state: ConnState,
-    msg: Extract<ClientMessage, { type: 'input' | 'chat' | 'leave' }>,
-  ): void {
+  function inRoom(state: ConnState, msg: Extract<ClientMessage, { type: 'input' | 'chat' | 'leave' }>): void {
     const { room, conn } = state;
     if (!room || !conn) {
       closeWithError(state, CLOSE.BAD_MESSAGE, 'join first');
@@ -342,20 +288,14 @@ export function createWsServer(server: Server, rooms: RoomManager) {
 
   // ---------- heartbeat ----------
 
-  const heartbeat = setInterval(() => {
-    for (const state of states.values()) {
-      if (state.missedPongs >= MAX_MISSED_PONGS) {
-        console.warn(`[ws] ${state.id} не відповідає на ping, розриваю`);
-        state.socket.terminate();
-        continue;
-      }
-      state.missedPongs++;
-      state.socket.ping();
-    }
-  }, PING_INTERVAL_MS);
+  // сам цикл - у heartbeat.ts (там його тестуємо з фейковими таймерами)
+  const stopHeartbeat = startHeartbeat(() => states.values(), {
+    intervalMs: PING_INTERVAL_MS,
+    maxMissed: MAX_MISSED_PONGS,
+  });
 
   function close(): Promise<void> {
-    clearInterval(heartbeat);
+    stopHeartbeat();
     for (const socket of wss.clients) {
       socket.close(CLOSE.SHUTDOWN, 'server shutdown');
     }
@@ -375,5 +315,12 @@ export function createWsServer(server: Server, rooms: RoomManager) {
     }));
   }
 
-  return { wss, close, stats, clientStats };
+  function resetBytes(): void {
+    for (const s of states.values()) {
+      s.bytesIn = 0;
+      s.bytesOut = 0;
+    }
+  }
+
+  return { wss, close, stats, clientStats, resetBytes };
 }

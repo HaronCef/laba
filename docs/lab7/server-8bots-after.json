@@ -1,0 +1,31 @@
+{
+  "label": "after",
+  "seconds": 60,
+  "bots": 8,
+  "players": 1,
+  "entities": 38,
+  "tickMs": {
+    "avg": 0.33,
+    "p50": 0.31,
+    "p95": 0.55,
+    "p99": 0.69,
+    "max": 2.36,
+    "jitter": 0.13
+  },
+  "overruns": 0,
+  "elu": 0.786,
+  "rssMb": 108.3,
+  "gcMs": 68,
+  "top": [
+    "    32 ms   0.1%  processTimers (node:internal/timers)",
+    "    29 ms   0.0%  onStreamRead (node:internal/stream_base_commons)",
+    "    23 ms   0.0%  think (sim/bot.ts)",
+    "    20 ms   0.0%  listOnTimeout (node:internal/timers)",
+    "    20 ms   0.0%  #step (src/match.ts)",
+    "    19 ms   0.0%  (match.ts)",
+    "    17 ms   0.0%  applyInput (sim/ship.ts)",
+    "    14 ms   0.0%  compileSourceTextModule (esm/utils)",
+    "    13 ms   0.0%  addChunk (streams/readable)",
+    "    12 ms   0.0%  #applyInputs (src/match.ts)"
+  ]
+}

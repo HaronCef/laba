@@ -46,10 +46,7 @@ export class Lobby extends Bus<LobbyEvents> {
 
   async refresh(): Promise<void> {
     // кожен запит має свій таймаут + загальний abort при виході з лобі
-    const signal = AbortSignal.any([
-      this.#controller.signal,
-      AbortSignal.timeout(this.timeoutMs),
-    ]);
+    const signal = AbortSignal.any([this.#controller.signal, AbortSignal.timeout(this.timeoutMs)]);
     try {
       this.rooms = RoomListSchema.parse(await fetchJson(this.url, { signal }));
       this.emit('rooms', this.rooms);

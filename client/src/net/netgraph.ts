@@ -20,17 +20,11 @@ const NETSIM_PRESETS: readonly Preset[] = [
 ];
 
 export function findPreset(net: Netsim): number {
-  const i = NETSIM_PRESETS.findIndex(
-    (p) => p.lag === net.lag && p.jitter === net.jitter && p.drop === net.drop,
-  );
+  const i = NETSIM_PRESETS.findIndex((p) => p.lag === net.lag && p.jitter === net.jitter && p.drop === net.drop);
   return i === -1 ? 0 : i;
 }
 
-export function createNetgraph(
-  net: NetClient,
-  connection: Connection,
-  { initialPreset = 0 } = {},
-) {
+export function createNetgraph(net: NetClient, connection: Connection, { initialPreset = 0 } = {}) {
   let preset = initialPreset;
   let broken = false;
   let lastBytesIn = 0;
@@ -53,13 +47,7 @@ export function createNetgraph(
       preset = (preset + 1) % NETSIM_PRESETS.length;
       // у JS тут було NETSIM_PRESETS[preset].lag - TypeScript нагадав, що індекс може промахнутись
       const next = NETSIM_PRESETS[preset];
-      if (next)
-        connection.send({
-          type: 'netsim',
-          lag: next.lag,
-          jitter: next.jitter,
-          drop: next.drop,
-        });
+      if (next) connection.send({ type: 'netsim', lag: next.lag, jitter: next.jitter, drop: next.drop });
     }
     if (e.code === 'KeyB') {
       broken = !broken;
@@ -67,13 +55,17 @@ export function createNetgraph(
     }
   });
 
-  function draw(ctx: CanvasRenderingContext2D, right: number, top: number): void {
-    const now = performance.now();
-    const recent = net.corrections.slice(-30);
-    const maxCorr = recent.length ? Math.max(...recent) : 0;
+  // текст оновлюємо 4 рази на секунду, а не кожен кадр
+  let lines: string[] = [];
+  let linesAt = -Infinity;
+
+  function updateLines(now: number): void {
+    let maxCorr = 0;
+    const from = Math.max(0, net.corrections.length - 30);
+    for (let i = from; i < net.corrections.length; i++) maxCorr = Math.max(maxCorr, net.corrections[i] ?? 0);
     const age = net.latest ? now - net.latest.arrival : 0;
 
-    const lines = [
+    lines = [
       `RTT:           ${Math.round(net.rtt)} мс`,
       `знімок віком:  ${Math.round(age)} мс (tick ${net.latest?.tick ?? '-'})`,
       `вхід / вихід:  ${(inPerSec / 1024).toFixed(1)} / ${(outPerSec / 1024).toFixed(1)} КБ/с`,
@@ -84,6 +76,14 @@ export function createNetgraph(
       `мережа:        ${NETSIM_PRESETS[preset]?.name ?? '?'}  N`,
       `кодек:         ${net.codec.name}${broken ? '   Math.random: ТАК (B)' : ''}`,
     ];
+  }
+
+  function draw(ctx: CanvasRenderingContext2D, right: number, top: number): void {
+    const now = performance.now();
+    if (now - linesAt > 250) {
+      updateLines(now);
+      linesAt = now;
+    }
 
     const width = 330;
     const left = right - width;
@@ -95,18 +95,19 @@ export function createNetgraph(
     ctx.fillRect(left, top, width, height);
     ctx.font = '12px monospace';
     ctx.fillStyle = broken ? '#ffb0b0' : '#9dd8ff';
-    lines.forEach((line, i) => ctx.fillText(line, left + 8, top + 16 + i * 16));
+    for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i] ?? '', left + 8, top + 16 + i * 16);
 
     // графік поправок за останні 3 с (стовпчик на кожен знімок, шкала до 20 px)
     const gy = top + lines.length * 16 + 10;
     ctx.strokeStyle = '#334';
     ctx.strokeRect(left + 8, gy, width - 16, graphH);
     const barW = (width - 16) / 90;
-    net.corrections.forEach((c, i) => {
+    for (let i = 0; i < net.corrections.length; i++) {
+      const c = net.corrections[i] ?? 0;
       const h = Math.min(graphH, (c / 20) * graphH);
       ctx.fillStyle = c > 5 ? '#ff6b6b' : '#7dff9a';
       ctx.fillRect(left + 8 + i * barW, gy + graphH - h, Math.max(1, barW - 0.5), h);
-    });
+    }
     ctx.restore();
   }
 

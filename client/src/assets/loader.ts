@@ -28,10 +28,7 @@ async function fetchOk(url: string, signal?: AbortSignal): Promise<Response> {
 }
 
 // спільна функція для всіх JSON. Повертає unknown: що там насправді, вирішує схема
-export async function fetchJson(
-  url: string,
-  { signal }: { signal?: AbortSignal } = {},
-): Promise<unknown> {
+export async function fetchJson(url: string, { signal }: { signal?: AbortSignal } = {}): Promise<unknown> {
   const response = await fetchOk(url, signal);
   const data: unknown = await response.json();
   return data;
@@ -81,9 +78,7 @@ export async function withRetry<T>(
       if (attempt >= attempts || !isRetryable(err)) throw err;
 
       const delay = baseMs * 2 ** (attempt - 1) + Math.random() * baseMs;
-      console.warn(
-        `[retry] спроба ${attempt} невдала (${errorText(err)}), ще раз через ${Math.round(delay)} мс`,
-      );
+      console.warn(`[retry] спроба ${attempt} невдала (${errorText(err)}), ще раз через ${Math.round(delay)} мс`);
       await sleep(delay, signal);
     }
   }
@@ -94,10 +89,7 @@ export function loadJson(url: string, options: LoadOptions = {}): Promise<unknow
 }
 
 // Image працює через колбеки onload/onerror - загортаємо в new Promise.
-export function loadImage(
-  src: string,
-  options: LoadOptions = {},
-): Promise<HTMLImageElement> {
+export function loadImage(src: string, options: LoadOptions = {}): Promise<HTMLImageElement> {
   return withRetry(async (signal) => {
     const blob = await (await fetchOk(src, signal)).blob();
     const objectUrl = URL.createObjectURL(blob);
@@ -117,11 +109,7 @@ export function loadImage(
 }
 
 // звук декодуємо одразу при завантаженні, а не при першому пострілі
-export function loadAudio(
-  ctx: AudioContext,
-  url: string,
-  options: LoadOptions = {},
-): Promise<AudioBuffer> {
+export function loadAudio(ctx: AudioContext, url: string, options: LoadOptions = {}): Promise<AudioBuffer> {
   return withRetry(async (signal) => {
     const data = await (await fetchOk(url, signal)).arrayBuffer();
     return ctx.decodeAudioData(data);
@@ -131,19 +119,13 @@ export function loadAudio(
 // ---------- маніфест ----------
 
 export const ManifestSchema = z.object({
-  sprites: z.object({
-    url: z.string(),
-    frameSize: z.number().int().positive(),
-    frames: z.array(z.string()),
-  }),
+  sprites: z.object({ url: z.string(), frameSize: z.number().int().positive(), frames: z.array(z.string()) }),
   sounds: z.record(z.string(), z.string()),
   arena: z.string(),
 });
 export type Manifest = z.infer<typeof ManifestSchema>;
 
-export const ArenaFileSchema = z.object({
-  stars: z.number().int().min(0).max(1000).default(180),
-});
+export const ArenaFileSchema = z.object({ stars: z.number().int().min(0).max(1000).default(180) });
 export type ArenaFile = z.infer<typeof ArenaFileSchema>;
 
 export interface Sprites {
@@ -194,14 +176,12 @@ export async function loadAll(
     optional: true,
     load: (url, opts) => loadImage(url, opts),
   };
-  const soundTasks: Array<Task<AudioBuffer>> = Object.entries(manifest.sounds).map(
-    ([name, url]) => ({
-      name: `sound:${name}`,
-      url,
-      optional: true,
-      load: (u, opts) => loadAudio(audioCtx, u, opts),
-    }),
-  );
+  const soundTasks: Array<Task<AudioBuffer>> = Object.entries(manifest.sounds).map(([name, url]) => ({
+    name: `sound:${name}`,
+    url,
+    optional: true,
+    load: (u, opts) => loadAudio(audioCtx, u, opts),
+  }));
 
   const total = 2 + soundTasks.length;
   let done = 0;
@@ -233,11 +213,7 @@ export async function loadAll(
     for (const task of soundTasks) buffers.push(await run(task));
   } else {
     // Promise.all з кортежем зберігає тип кожного елемента
-    [arena, image, buffers] = await Promise.all([
-      run(arenaTask),
-      run(spriteTask),
-      Promise.all(soundTasks.map(run)),
-    ]);
+    [arena, image, buffers] = await Promise.all([run(arenaTask), run(spriteTask), Promise.all(soundTasks.map(run))]);
   }
   if (!arena) throw new Error('arena.json не завантажився');
 
@@ -249,9 +225,7 @@ export async function loadAll(
 
   return {
     arena,
-    sprites: image
-      ? { image, frameSize: manifest.sprites.frameSize, frames: manifest.sprites.frames }
-      : null,
+    sprites: image ? { image, frameSize: manifest.sprites.frameSize, frames: manifest.sprites.frames } : null,
     sounds,
     timeMs: performance.now() - start,
   };

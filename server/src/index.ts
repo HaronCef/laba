@@ -59,13 +59,38 @@ async function readBody(req: IncomingMessage, limit: number): Promise<string> {
 
 // Тіло POST /api/rooms - теж вхід ззовні, тому Zod (раніше тут була ручна перевірка)
 const CreateRoomSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, 'name: від 1 до 24 символів')
-    .max(24, 'name: від 1 до 24 символів'),
+  name: z.string().trim().min(1, 'name: від 1 до 24 символів').max(24, 'name: від 1 до 24 символів'),
   maxPlayers: z.number().int().min(2).max(8).default(4),
 });
+
+// POST /api/rooms/:id/bots {"count": 8} - додати ботів; DELETE - прибрати всіх
+const AddBotsSchema = z.object({ count: z.number().int().min(1).max(16) });
+
+async function addBots(req: IncomingMessage, res: ServerResponse, roomId: string): Promise<void> {
+  const room = rooms.get(roomId);
+  if (!room) {
+    sendJson(res, 404, { error: 'no such room' });
+    return;
+  }
+  if (req.method === 'DELETE') {
+    room.removeBots();
+    sendJson(res, 200, { bots: 0 });
+    return;
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readBody(req, MAX_BODY_BYTES));
+  } catch {
+    sendJson(res, 400, { error: 'invalid JSON' });
+    return;
+  }
+  const parsed = AddBotsSchema.safeParse(raw);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'count: від 1 до 16' });
+    return;
+  }
+  sendJson(res, 200, { bots: room.addBots(parsed.data.count) });
+}
 
 async function createRoom(req: IncomingMessage, res: ServerResponse): Promise<void> {
   let raw: unknown;
@@ -100,20 +125,13 @@ async function streamReplay(res: ServerResponse, name: string): Promise<void> {
     sendJson(res, 404, { error: 'no such replay' });
     return;
   }
-  res.writeHead(200, {
-    'content-type': 'application/x-ndjson',
-    'content-length': info.size,
-  });
+  res.writeHead(200, { 'content-type': 'application/x-ndjson', 'content-length': info.size });
   await pipeline(createReadStream(file), res);
 }
 
 // Перші N подій логу. readEvents - async-генератор, і коли ми виходимо з for await
 // раніше, він сам закриває потік файлу.
-async function replayEvents(
-  res: ServerResponse,
-  name: string,
-  limit: number,
-): Promise<void> {
+async function replayEvents(res: ServerResponse, name: string, limit: number): Promise<void> {
   const file = replayPath(config.logDir, name);
   if (!file || !(await stat(file).catch(() => null))) {
     sendJson(res, 404, { error: 'no such replay' });
@@ -135,6 +153,8 @@ function busyWait(ms: number): void {
   }
 }
 
+let lastElu = performance.eventLoopUtilization();
+
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const p = url.pathname;
@@ -151,8 +171,22 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
   if (req.method === 'GET' && p === '/api/stats') {
-    // тривалість і розкид кроків кожного матчу + байти клієнтів
+    // ?reset=1 - скинути статистику (для load test)
+    if (url.searchParams.get('reset') === '1') {
+      for (const room of rooms.all()) room.match?.resetStats();
+      ws.resetBytes();
+      lastElu = performance.eventLoopUtilization();
+      sendJson(res, 200, { reset: true });
+      return;
+    }
+    // статистика матчів, клієнтів і процесу
+    const elu = performance.eventLoopUtilization(lastElu);
+    lastElu = performance.eventLoopUtilization();
+    const mem = process.memoryUsage();
     sendJson(res, 200, {
+      elu: Math.round(elu.utilization * 1000) / 1000, // наскільки зайнятий event loop (0..1)
+      rssMb: Math.round((mem.rss / 1024 / 1024) * 10) / 10,
+      heapMb: Math.round((mem.heapUsed / 1024 / 1024) * 10) / 10,
       matches: rooms.all().flatMap((r) => (r.match ? [r.match.statsJson()] : [])),
       clients: ws.clientStats(),
     });
@@ -162,6 +196,13 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method === 'GET') return sendJson(res, 200, rooms.list());
     if (req.method === 'POST') return createRoom(req, res);
     res.writeHead(405, { allow: 'GET, POST' });
+    res.end();
+    return;
+  }
+  const botsPath = p.match(/^\/api\/rooms\/([a-z0-9-]+)\/bots$/);
+  if (botsPath && botsPath[1]) {
+    if (req.method === 'POST' || req.method === 'DELETE') return addBots(req, res, botsPath[1]);
+    res.writeHead(405, { allow: 'POST, DELETE' });
     res.end();
     return;
   }
@@ -203,12 +244,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 const server = http.createServer((req, res) => {
   route(req, res).catch((err: unknown) => {
     // помилка в одному запиті не повинна звалити весь сервер
-    if (
-      err instanceof Error &&
-      'code' in err &&
-      err.code === 'ERR_STREAM_PREMATURE_CLOSE'
-    )
-      return; // клієнт перервав
+    if (err instanceof Error && 'code' in err && err.code === 'ERR_STREAM_PREMATURE_CLOSE') return; // клієнт перервав
     console.error('[http]', req.method, req.url, err);
     if (!res.headersSent) sendJson(res, 500, { error: 'internal error' });
     else res.destroy();
@@ -221,9 +257,7 @@ const ws = createWsServer(server, rooms);
 // (лог у README, лаба 4). Тепер - зрозуміле повідомлення і вихід з кодом 1.
 function onServerError(err: unknown): void {
   if (err instanceof Error && 'code' in err && err.code === 'EADDRINUSE') {
-    console.error(
-      `[http] порт ${config.port} уже зайнятий. Закрий інший сервер або зміни PORT у .env`,
-    );
+    console.error(`[http] порт ${config.port} уже зайнятий. Закрий інший сервер або зміни PORT у .env`);
   } else {
     console.error('[http] помилка сервера:', err);
   }

@@ -17,16 +17,7 @@ export function scriptedInput(i: number): Input {
 
 // Прогнати корабель steps кроків і повернути хеш кінцевого стану
 export function runScriptedShip(steps = 1000): string {
-  let state: ShipState = {
-    x: 640,
-    y: 360,
-    vx: 0,
-    vy: 0,
-    angle: -Math.PI / 2,
-    shotCd: 0,
-    missileCd: 0,
-    triple: false,
-  };
+  let state: ShipState = { x: 640, y: 360, vx: 0, vy: 0, angle: -Math.PI / 2, shotCd: 0, missileCd: 0, triple: false };
   for (let i = 0; i < steps; i++) {
     state = stepShip(state, scriptedInput(i)).state;
   }

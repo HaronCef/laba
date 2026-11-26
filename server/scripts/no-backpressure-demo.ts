@@ -14,9 +14,7 @@ const file = path.join(config.value.logDir, 'big-test.ndjson');
 http
   .createServer((req, res) => {
     if (req.url === '/health') {
-      res.end(
-        JSON.stringify({ rssMb: Math.round(process.memoryUsage().rss / 1024 / 1024) }),
-      );
+      res.end(JSON.stringify({ rssMb: Math.round(process.memoryUsage().rss / 1024 / 1024) }));
       return;
     }
     res.writeHead(200, { 'content-type': 'application/x-ndjson' });

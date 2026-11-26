@@ -10,7 +10,7 @@ const EnvSchema = z.object({
   LOG_DIR: z.string().min(1).default('./logs'),
   STATIC_DIR: z.string().min(1).default('../client/dist'),
   MAX_ROOMS: z.coerce.number().int().min(1).max(1000).default(20),
-  MAX_PLAYERS: z.coerce.number().int().min(2).max(64).default(8),
+  MAX_PLAYERS: z.coerce.number().int().min(2).max(1024).default(8), // сотні - лише для load test
 });
 
 export interface ServerConfig {
@@ -22,13 +22,9 @@ export interface ServerConfig {
   readonly maxPlayersPerRoom: number;
 }
 
-export function loadConfig(
-  env: Record<string, string | undefined> = process.env,
-): Result<ServerConfig> {
+export function loadConfig(env: Record<string, string | undefined> = process.env): Result<ServerConfig> {
   // порожнє значення (PORT=) вважаємо "не задано" - тоді спрацює default
-  const filled = Object.fromEntries(
-    Object.entries(env).filter(([, value]) => value !== ''),
-  );
+  const filled = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
   const parsed = EnvSchema.safeParse(filled);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];

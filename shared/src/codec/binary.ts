@@ -1,13 +1,5 @@
 import { normalizeAngle } from '../sim/vector.ts';
-import {
-  asEntityId,
-  asSeq,
-  asTick,
-  assertNever,
-  fail,
-  ok,
-  type Result,
-} from '../types.ts';
+import { asEntityId, asSeq, asTick, assertNever, fail, ok, type Result, type Seq } from '../types.ts';
 import type { EntityRecord, Input, Snapshot } from '../protocol.ts';
 
 /*
@@ -48,22 +40,10 @@ const HEADER_BYTES = 12;
 const ENTITY_BYTES = 26;
 const MAX_ANGLE = 3142; // π * 1000, округлено вгору
 
-const KIND_CODE = { ship: 1, bullet: 2, asteroid: 3, pickup: 4 } satisfies Record<
-  EntityRecord['kind'],
-  number
->;
+const KIND_CODE = { ship: 1, bullet: 2, asteroid: 3, pickup: 4 } satisfies Record<EntityRecord['kind'], number>;
 
 const BTN = { thrust: 1, fire: 2, missile: 4, flip: 8 };
-const F = {
-  thrust: 1,
-  shield: 2,
-  triple: 4,
-  dead: 8,
-  missile: 1,
-  big: 1,
-  hunter: 2,
-  effectTriple: 1,
-};
+const F = { thrust: 1, shield: 2, triple: 4, dead: 8, missile: 1, big: 1, hunter: 2, effectTriple: 1 };
 
 type Bytes = ArrayBuffer | Uint8Array;
 
@@ -124,11 +104,7 @@ export function decodeInput(data: Bytes): Result<Input> {
 // ---------- snapshot ----------
 
 // flags, owner і extra для кожного виду свої
-function packKindFields(e: EntityRecord): {
-  flags: number;
-  owner: number;
-  extra: number;
-} {
+function packKindFields(e: EntityRecord): { flags: number; owner: number; extra: number } {
   switch (e.kind) {
     case 'ship': {
       let flags = 0;
@@ -141,11 +117,7 @@ function packKindFields(e: EntityRecord): {
     case 'bullet':
       return { flags: e.missile ? F.missile : 0, owner: e.owner, extra: e.shotId };
     case 'asteroid':
-      return {
-        flags: (e.big ? F.big : 0) | (e.hunter ? F.hunter : 0),
-        owner: 0,
-        extra: e.hp,
-      };
+      return { flags: (e.big ? F.big : 0) | (e.hunter ? F.hunter : 0), owner: 0, extra: e.hp };
     case 'pickup':
       return { flags: e.effect === 'triple' ? F.effectTriple : 0, owner: 0, extra: 0 };
     default:
@@ -154,8 +126,7 @@ function packKindFields(e: EntityRecord): {
 }
 
 function checkU16(name: string, n: number): number {
-  if (!Number.isInteger(n) || n < 0 || n > 0xffff)
-    throw new RangeError(`${name} = ${n} не влазить у Uint16`);
+  if (!Number.isInteger(n) || n < 0 || n > 0xffff) throw new RangeError(`${name} = ${n} не влазить у Uint16`);
   return n;
 }
 
@@ -186,10 +157,16 @@ export function encodeSnapshot(snapshot: Snapshot): ArrayBuffer {
   return buffer;
 }
 
+// Копія знімка з іншим ack (байти 6..9). Копія, бо ws може ще не відправити попередній.
+export function withAck(snapshot: ArrayBuffer, ack: Seq): ArrayBuffer {
+  const copy = snapshot.slice(0);
+  new DataView(copy).setUint32(6, ack, LE);
+  return copy;
+}
+
 function readEntity(view: DataView, o: number): Result<EntityRecord> {
   const angleMilli = view.getInt16(o + 22, LE);
-  if (angleMilli < -MAX_ANGLE || angleMilli > MAX_ANGLE)
-    return fail(`angle ${angleMilli}`);
+  if (angleMilli < -MAX_ANGLE || angleMilli > MAX_ANGLE) return fail(`angle ${angleMilli}`);
   const base = {
     id: asEntityId(view.getUint16(o, LE)),
     x: view.getFloat32(o + 6, LE),
@@ -198,8 +175,7 @@ function readEntity(view: DataView, o: number): Result<EntityRecord> {
     vy: view.getFloat32(o + 18, LE),
     angle: angleMilli / 1000,
   };
-  if (![base.x, base.y, base.vx, base.vy].every(Number.isFinite))
-    return fail('NaN or Infinity');
+  if (![base.x, base.y, base.vx, base.vy].every(Number.isFinite)) return fail('NaN or Infinity');
 
   const kind = view.getUint8(o + 2);
   const flags = view.getUint8(o + 3);
@@ -222,22 +198,10 @@ function readEntity(view: DataView, o: number): Result<EntityRecord> {
       });
     case KIND_CODE.bullet:
       if (flags > 1) return fail('bullet flags');
-      return ok({
-        kind: 'bullet',
-        ...base,
-        missile: flags === 1,
-        owner: asEntityId(owner),
-        shotId: extra,
-      });
+      return ok({ kind: 'bullet', ...base, missile: flags === 1, owner: asEntityId(owner), shotId: extra });
     case KIND_CODE.asteroid:
       if (flags > 0b11) return fail('asteroid flags');
-      return ok({
-        kind: 'asteroid',
-        ...base,
-        big: (flags & F.big) !== 0,
-        hunter: (flags & F.hunter) !== 0,
-        hp: extra,
-      });
+      return ok({ kind: 'asteroid', ...base, big: (flags & F.big) !== 0, hunter: (flags & F.hunter) !== 0, hp: extra });
     case KIND_CODE.pickup:
       if (flags > 1) return fail('pickup flags');
       return ok({ kind: 'pickup', ...base, effect: flags === 1 ? 'triple' : 'shield' });
@@ -259,9 +223,5 @@ export function decodeSnapshot(data: Bytes): Result<Snapshot> {
     if (!entity.ok) return fail(`entity ${i}: ${entity.error}`);
     entities.push(entity.value);
   }
-  return ok({
-    tick: asTick(view.getUint32(2, LE)),
-    ack: asSeq(view.getUint32(6, LE)),
-    entities,
-  });
+  return ok({ tick: asTick(view.getUint32(2, LE)), ack: asSeq(view.getUint32(6, LE)), entities });
 }

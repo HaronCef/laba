@@ -1,0 +1,31 @@
+{
+  "label": "after-128",
+  "seconds": 30,
+  "bots": 0,
+  "players": 128,
+  "entities": 385,
+  "tickMs": {
+    "avg": 2.93,
+    "p50": 2.62,
+    "p95": 5.15,
+    "p99": 6.94,
+    "max": 8.23,
+    "jitter": 1.08
+  },
+  "overruns": 0,
+  "elu": 0.799,
+  "rssMb": 152.3,
+  "gcMs": 191,
+  "top": [
+    "  1661 ms   5.4%  writev ()",
+    "    47 ms   0.2%  onwrite (streams/writable)",
+    "    35 ms   0.1%  #broadcast (src/match.ts)",
+    "    30 ms   0.1%  withAck (codec/binary.ts)",
+    "    24 ms   0.1%  encodeSnapshot (codec/binary.ts)",
+    "    23 ms   0.1%  compileSourceTextModule (esm/utils)",
+    "    21 ms   0.1%  processTimers (node:internal/timers)",
+    "    20 ms   0.1%  onStreamRead (node:internal/stream_base_commons)",
+    "    18 ms   0.1%  writeBuffer ()",
+    "    18 ms   0.1%  writeUtf8String ()"
+  ]
+}

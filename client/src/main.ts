@@ -1,12 +1,6 @@
 import { setupCanvas } from './render/canvas.ts';
 import { drawLoading, type LoadingState } from './render/draw.ts';
-import {
-  ManifestSchema,
-  errorText,
-  loadAll,
-  loadJson,
-  type Assets,
-} from './assets/loader.ts';
+import { ManifestSchema, errorText, loadAll, loadJson, type Assets } from './assets/loader.ts';
 import { createAudio } from './audio.ts';
 import { Lobby } from './lobby/lobby.ts';
 import { createLobbyView } from './lobby/lobbyView.ts';
@@ -63,34 +57,22 @@ function waitForClick(button: HTMLButtonElement): Promise<void> {
 async function loadAssets(failMode: string | null): Promise<Assets> {
   const controller = new AbortController();
   const onKey = (e: KeyboardEvent): void => {
-    if (e.code === 'Escape')
-      controller.abort(new DOMException('гравець натиснув Esc', 'AbortError'));
+    if (e.code === 'Escape') controller.abort(new DOMException('гравець натиснув Esc', 'AbortError'));
   };
   window.addEventListener('keydown', onKey);
 
-  const state: LoadingState = {
-    title: 'Завантаження...',
-    progress: 0,
-    lines: [],
-    failed: false,
-  };
+  const state: LoadingState = { title: 'Завантаження...', progress: 0, lines: [], failed: false };
   drawLoading(ctx, size.width, size.height, state);
 
   let timeoutMs = 5000;
   if (failMode === 'abort') {
     // все повільне, а через 500 мс скасовуємо
-    setTimeout(
-      () =>
-        controller.abort(new DOMException('скасовано посередині (тест)', 'AbortError')),
-      500,
-    );
+    setTimeout(() => controller.abort(new DOMException('скасовано посередині (тест)', 'AbortError')), 500);
   }
 
   try {
     // маніфест - вхід ззовні: unknown -> Zod
-    const manifest = ManifestSchema.parse(
-      await loadJson(withQuery('/assets/manifest.json'), { signal: controller.signal }),
-    );
+    const manifest = ManifestSchema.parse(await loadJson(withQuery('/assets/manifest.json'), { signal: controller.signal }));
 
     // підміняємо адреси для тестів збоїв
     const slow: Record<string, number> = failMode === 'abort' ? { delay: 1500 } : {};
@@ -101,8 +83,7 @@ async function loadAssets(failMode: string | null): Promise<Assets> {
     }
     if (failMode === '404') manifest.sprites.url = '/assets/no-such-sprites.png';
     if (failMode === 'json') manifest.arena = '/assets/broken.json';
-    if (failMode === 'flaky')
-      manifest.arena = withQuery('/assets/arena.json', { flaky: 2 });
+    if (failMode === 'flaky') manifest.arena = withQuery('/assets/arena.json', { flaky: 2 });
     if (failMode === 'timeout') {
       manifest.arena = withQuery('/assets/arena.json', { delay: 3000 });
       timeoutMs = 1000;
@@ -127,9 +108,7 @@ async function loadAssets(failMode: string | null): Promise<Assets> {
     return assets;
   } catch (err: unknown) {
     // Promise.all вже відхилився, але інші файли ще качаються - зупиняємо їх
-    controller.abort(
-      new DOMException('зупинено, бо інший файл не завантажився', 'AbortError'),
-    );
+    controller.abort(new DOMException('зупинено, бо інший файл не завантажився', 'AbortError'));
     state.failed = true;
     state.title = 'Не вдалося завантажити гру';
     state.lines.push(`✗ ${errorText(err)}`);
@@ -149,8 +128,7 @@ async function main(): Promise<void> {
       assets = await loadAssets(failMode);
     } catch (err: unknown) {
       console.error('[loader]', err);
-      ui.innerHTML =
-        '<div class="panel retry"><button id="retry-btn">Retry</button></div>';
+      ui.innerHTML = '<div class="panel retry"><button id="retry-btn">Retry</button></div>';
       ui.hidden = false;
       await waitForClick(el(ui, '#retry-btn', HTMLButtonElement));
       ui.hidden = true;
@@ -165,19 +143,12 @@ async function main(): Promise<void> {
   ctx.fillRect(0, 0, size.width, size.height);
   ctx.fillStyle = '#8890b0';
   ctx.font = '13px monospace';
-  ctx.fillText(
-    `ассети завантажено за ${Math.round(assets.timeMs)} мс`,
-    16,
-    size.height - 16,
-  );
+  ctx.fillText(`ассети завантажено за ${Math.round(assets.timeMs)} мс`, 16, size.height - 16);
 
-  const lobby = new Lobby(
-    withQuery('/api/rooms', failMode === 'lobby' ? { delay: 3000 } : {}),
-    {
-      intervalMs: 3000,
-      timeoutMs: 2000,
-    },
-  );
+  const lobby = new Lobby(withQuery('/api/rooms', failMode === 'lobby' ? { delay: 3000 } : {}), {
+    intervalMs: 3000,
+    timeoutMs: 2000,
+  });
   createLobbyView(lobby, ui);
   lobby.start();
 
@@ -192,9 +163,7 @@ async function main(): Promise<void> {
     jitter: Number(params.get('jitter') ?? 0),
     drop: Number(params.get('drop') ?? 0) / 100,
   });
-  const netsim = netsimParsed.success
-    ? netsimParsed.data
-    : { lag: 0, jitter: 0, drop: 0 };
+  const netsim = netsimParsed.success ? netsimParsed.data : { lag: 0, jitter: 0, drop: 0 };
 
   // WebSocket: при кожному (пере)підключенні заново кажемо серверу, в яку кімнату йдемо
   const connection = new Connection(serverUrl());
@@ -206,17 +175,7 @@ async function main(): Promise<void> {
   connection.on('joined', () => chat.addLine(`ви в кімнаті "${room.name}"`, 'ok'));
 
   // світ рахує сервер: клієнт шле input і малює знімки
-  startGame({
-    ctx,
-    size,
-    assets,
-    room,
-    pilotName: name,
-    audio,
-    net,
-    connection,
-    netPreset: findPreset(netsim),
-  });
+  startGame({ ctx, size, assets, room, pilotName: name, audio, net, connection, netPreset: findPreset(netsim) });
 }
 
 void main();

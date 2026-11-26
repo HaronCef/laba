@@ -6,10 +6,7 @@ export interface Size {
   height: number;
 }
 
-export function setupCanvas(canvas: HTMLCanvasElement): {
-  ctx: CanvasRenderingContext2D;
-  size: Size;
-} {
+export function setupCanvas(canvas: HTMLCanvasElement): { ctx: CanvasRenderingContext2D; size: Size } {
   // getContext може повернути null (наприклад, контекст уже іншого типу) - TypeScript не дає це пропустити
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D недоступний');

@@ -6,15 +6,15 @@ import type { EntityId } from 'shared/types.ts';
 import type { RoomInfo } from 'shared/protocol.ts';
 import {
   arenaView,
-  createExplosion,
   createStars,
   drawBackground,
-  drawExplosions,
+  drawParticles,
   drawHud,
   drawWorld,
-  type Explosion,
 } from './render/draw.ts';
 import { createHud } from './hud.ts';
+import { ParticlePool } from './render/particles.ts';
+import { mark, measure } from './perf.ts';
 import { createNetgraph } from './net/netgraph.ts';
 import type { Size } from './render/canvas.ts';
 import type { Assets } from './assets/loader.ts';
@@ -43,17 +43,7 @@ export interface GameOptions {
 }
 
 // Сама гра: світ рахує сервер, тут лише input, прогноз свого корабля і малювання.
-export function startGame({
-  ctx,
-  size,
-  assets,
-  room,
-  pilotName,
-  audio,
-  net,
-  connection,
-  netPreset,
-}: GameOptions): void {
+export function startGame({ ctx, size, assets, room, pilotName, audio, net, connection, netPreset }: GameOptions): void {
   const input = createInput(window);
   const stars = createStars(assets.arena.stars);
   const hud = createHud(net);
@@ -67,12 +57,11 @@ export function startGame({
     for (const p of msg.players) names.set(p.shipId, p.name);
   });
 
-  let explosions: Explosion[] = [];
+  // пул частинок (варіант з воркером пробував - не виграв, див. README)
+  const particles = new ParticlePool(800);
   net.on('exploded', (e) => {
     const color = e.kind === 'ship' ? '#8fa2ff' : '#ffb347';
-    explosions.push(
-      createExplosion(e.x, e.y, e.kind === 'ship' ? 30 : (e.size ?? 2) * 10, color),
-    );
+    particles.explode(e.x, e.y, e.kind === 'ship' ? 30 : (e.size ?? 2) * 10, color);
   });
 
   window.addEventListener('keydown', (event) => {
@@ -97,6 +86,13 @@ export function startGame({
 
   let lastFrame = performance.now();
 
+  // вид арени і HUD перераховуємо лише коли щось змінилось
+  let view = arenaView(size.width, size.height, ARENA);
+  let viewW = size.width;
+  let viewH = size.height;
+  const hudLines = ['', '', '', 'W газ, A/D поворот, S розворот, Space постріл, E ракета, M звук'];
+  let hudKey = -1;
+
   function render(alpha: number): void {
     const now = performance.now();
     const frameDt = Math.min(0.1, (now - lastFrame) / 1000);
@@ -105,7 +101,11 @@ export function startGame({
     drawBackground(ctx, size.width, size.height, stars);
 
     // світ у координатах арени, вписаної у вікно
-    const view = arenaView(size.width, size.height, ARENA);
+    if (viewW !== size.width || viewH !== size.height) {
+      view = arenaView(size.width, size.height, ARENA);
+      viewW = size.width;
+      viewH = size.height;
+    }
     ctx.save();
     ctx.translate(view.x, view.y);
     ctx.scale(view.scale, view.scale);
@@ -113,22 +113,23 @@ export function startGame({
     ctx.lineWidth = 2;
     ctx.strokeRect(0, 0, ARENA.width, ARENA.height);
     drawWorld(ctx, net.renderList(alpha, frameDt, now), assets.sprites, names);
-    explosions = drawExplosions(ctx, explosions, frameDt);
+    mark('particles-start');
+    drawParticles(ctx, particles, frameDt);
+    measure('particles', 'particles-start');
     hud.drawPopups(ctx);
     ctx.restore();
 
     const me = net.me;
     const s = loop.stats;
-    drawHud(ctx, [
-      `${pilotName} @ ${room.name}   гравців: ${names.size}`,
-      `steps/s: ${s.stepsPerSec}   frames/s: ${s.framesPerSec}`,
-      !me
-        ? 'чекаю перший знімок...'
-        : me.dead
-          ? 'корабель знищено, респаун...'
-          : `hp: ${me.hp}`,
-      'W газ, A/D поворот, S розворот, Space постріл, E ракета, M звук',
-    ]);
+    // якщо щось у HUD змінилось - будуємо рядки заново
+    const key = names.size + s.stepsPerSec * 1e3 + s.framesPerSec * 1e6 + (me ? (me.dead ? 1e9 : me.hp * 1e10) : 0);
+    if (key !== hudKey) {
+      hudKey = key;
+      hudLines[0] = `${pilotName} @ ${room.name}   гравців: ${names.size}`;
+      hudLines[1] = `steps/s: ${s.stepsPerSec}   frames/s: ${s.framesPerSec}`;
+      hudLines[2] = !me ? 'чекаю перший знімок...' : me.dead ? 'корабель знищено, респаун...' : `hp: ${me.hp}`;
+    }
+    drawHud(ctx, hudLines);
     hud.drawScore(ctx, size.width);
     netgraph.draw(ctx, size.width - 10, 50);
   }

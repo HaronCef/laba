@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" font-family="sans-serif" font-size="12">
+<rect width="760" height="420" fill="#ffffff"/>
+<text x="60" y="22" font-size="15" font-weight="bold" fill="#191919">Тривалість кроку сервера (p99) від кількості гравців в одній кімнаті</text>
+<line x1="60" x2="540" y1="360" y2="360" stroke="#e6e6e6"/>
+<text x="52" y="364" text-anchor="end" fill="#666666">0</text>
+<line x1="60" x2="540" y1="306.6666666666667" y2="306.6666666666667" stroke="#e6e6e6"/>
+<text x="52" y="310.6666666666667" text-anchor="end" fill="#666666">10</text>
+<line x1="60" x2="540" y1="253.33333333333337" y2="253.33333333333337" stroke="#e6e6e6"/>
+<text x="52" y="257.33333333333337" text-anchor="end" fill="#666666">20</text>
+<line x1="60" x2="540" y1="200" y2="200" stroke="#e6e6e6"/>
+<text x="52" y="204" text-anchor="end" fill="#666666">30</text>
+<line x1="60" x2="540" y1="146.66666666666669" y2="146.66666666666669" stroke="#e6e6e6"/>
+<text x="52" y="150.66666666666669" text-anchor="end" fill="#666666">40</text>
+<line x1="60" x2="540" y1="93.33333333333331" y2="93.33333333333331" stroke="#e6e6e6"/>
+<text x="52" y="97.33333333333331" text-anchor="end" fill="#666666">50</text>
+<line x1="60" x2="540" y1="40" y2="40" stroke="#e6e6e6"/>
+<text x="52" y="44" text-anchor="end" fill="#666666">60</text>
+<text x="60" y="378" text-anchor="middle" fill="#666666">8</text>
+<text x="128.57142857142856" y="378" text-anchor="middle" fill="#666666">16</text>
+<text x="197.14285714285714" y="378" text-anchor="middle" fill="#666666">32</text>
+<text x="265.71428571428567" y="378" text-anchor="middle" fill="#666666">64</text>
+<text x="334.2857142857143" y="378" text-anchor="middle" fill="#666666">128</text>
+<text x="402.8571428571429" y="378" text-anchor="middle" fill="#666666">256</text>
+<text x="471.4285714285714" y="378" text-anchor="middle" fill="#666666">512</text>
+<text x="540" y="378" text-anchor="middle" fill="#666666">1024</text>
+<text x="300" y="402" text-anchor="middle" fill="#666666">гравців (N), шкала log2</text>
+<text transform="translate(16 200) rotate(-90)" text-anchor="middle" fill="#666666">мс</text>
+<line x1="60" x2="540" y1="182.40000000000003" y2="182.40000000000003" stroke="#191919" stroke-dasharray="5 4"/>
+<text x="546" y="186.40000000000003" fill="#191919">33 мс = бюджет кроку</text>
+<polyline points="60.0,354.6 197.1,345.9 265.7,319.6 334.3,267.8 374.4,256.4 402.9,210.1" fill="none" stroke="#f47230" stroke-width="2"/>
+<circle cx="60" cy="354.56" r="4.5" fill="#f47230" stroke="#ffffff" stroke-width="2"><title>N=8: 1.02 мс</title></circle>
+<circle cx="197.14285714285714" cy="345.8666666666667" r="4.5" fill="#f47230" stroke="#ffffff" stroke-width="2"><title>N=32: 2.65 мс</title></circle>
+<circle cx="265.71428571428567" cy="319.62666666666667" r="4.5" fill="#f47230" stroke="#ffffff" stroke-width="2"><title>N=64: 7.57 мс</title></circle>
+<circle cx="334.2857142857143" cy="267.84" r="4.5" fill="#f47230" stroke="#ffffff" stroke-width="2"><title>N=128: 17.28 мс</title></circle>
+<circle cx="374.3974286208793" cy="256.4266666666666" r="4.5" fill="#f47230" stroke="#ffffff" stroke-width="2"><title>N=192: 19.42 мс</title></circle>
+<circle cx="402.8571428571429" cy="210.08000000000004" r="4.5" fill="#f47230" stroke="#ffffff" stroke-width="2"><title>N=256: 28.11 мс</title></circle>
+<line x1="546" x2="566" y1="130" y2="130" stroke="#f47230" stroke-width="2"/>
+<circle cx="556" cy="130" r="4" fill="#f47230"/>
+<text x="572" y="134" fill="#191919">до оптимізацій</text>
+<text x="410.8571428571429" y="202.08000000000004" fill="#191919">28.11 мс</text>
+<polyline points="60.0,356.0 197.1,347.7 265.7,348.3 334.3,326.9 374.4,316.7 402.9,287.5 443.0,282.1 471.4,245.0 511.5,200.5 540.0,78.2" fill="none" stroke="#257de0" stroke-width="2"/>
+<circle cx="60" cy="356" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=8: 0.75 мс</title></circle>
+<circle cx="197.14285714285714" cy="347.73333333333335" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=32: 2.3 мс</title></circle>
+<circle cx="265.71428571428567" cy="348.32" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=64: 2.19 мс</title></circle>
+<circle cx="334.2857142857143" cy="326.93333333333334" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=128: 6.2 мс</title></circle>
+<circle cx="374.3974286208793" cy="316.6933333333333" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=192: 8.12 мс</title></circle>
+<circle cx="402.8571428571429" cy="287.52" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=256: 13.59 мс</title></circle>
+<circle cx="442.96885719230784" cy="282.1333333333333" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=384: 14.6 мс</title></circle>
+<circle cx="471.4285714285714" cy="245.01333333333335" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=512: 21.56 мс</title></circle>
+<circle cx="511.54028576373645" cy="200.48000000000002" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=768: 29.91 мс</title></circle>
+<circle cx="540" cy="78.24000000000001" r="4.5" fill="#257de0" stroke="#ffffff" stroke-width="2"><title>N=1024: 52.83 мс</title></circle>
+<line x1="546" x2="566" y1="152" y2="152" stroke="#257de0" stroke-width="2"/>
+<circle cx="556" cy="152" r="4" fill="#257de0"/>
+<text x="572" y="156" fill="#191919">після оптимізацій</text>
+<text x="548" y="70.24000000000001" fill="#191919">52.83 мс</text>
+</svg>

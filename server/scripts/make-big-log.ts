@@ -34,9 +34,5 @@ function* fakeEvents(): Generator<LogEvent> {
 }
 
 const start = Date.now();
-await pipeline(
-  Readable.from(fakeEvents()),
-  new NdjsonTransform(),
-  createWriteStream(file),
-);
+await pipeline(Readable.from(fakeEvents()), new NdjsonTransform(), createWriteStream(file));
 console.log(`${file}: ${megabytes} МБ за ${((Date.now() - start) / 1000).toFixed(1)} с`);

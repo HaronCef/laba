@@ -66,14 +66,7 @@ export class World {
     const ship = this.byNetId(shipNetId);
     if (!ship || ship.kind !== 'ship') return;
     ship.score += delta;
-    this.emit({
-      type: 'score',
-      ship: shipNetId,
-      score: ship.score,
-      delta,
-      x: pos.x,
-      y: pos.y,
-    });
+    this.emit({ type: 'score', ship: shipNetId, score: ship.score, delta, x: pos.x, y: pos.y });
   }
 
   get size(): number {

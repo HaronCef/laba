@@ -1,14 +1,15 @@
 {
   "name": "client",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json",
-    "exp3": "tsx scripts/exp3.ts"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json && tsc -p tsconfig.test.json",
+    "exp3": "tsx scripts/exp3.ts",
+    "test": "vitest run"
   },
   "devDependencies": {
     "vite": "^7.0.0"

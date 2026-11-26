@@ -72,7 +72,8 @@ export function createLobbyView(lobby: Lobby, root: HTMLElement): void {
     const name = newRoomInput.value.trim();
     if (!name) return;
     createBtn.disabled = true;
-    lobby
+    // помилки обробляє .catch нижче; void - явно кажемо лінтеру (no-floating-promises), що чекати не треба
+    void lobby
       .create(name)
       .then(() => {
         newRoomInput.value = '';

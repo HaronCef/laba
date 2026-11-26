@@ -1,11 +1,5 @@
 import { decodeSnapshot, encodeInput, encodeSnapshot } from './binary.ts';
-import {
-  InputSchema,
-  SnapshotSchema,
-  PROTOCOL_VERSION,
-  type Input,
-  type Snapshot,
-} from '../protocol.ts';
+import { InputSchema, SnapshotSchema, PROTOCOL_VERSION, type Input, type Snapshot } from '../protocol.ts';
 import { fail, ok, type Result } from '../types.ts';
 
 // Два способи передати input і знімки. Вибирається прапорцем ?codec=json,
@@ -47,9 +41,7 @@ export const jsonCodec: Codec = {
       return fail('not JSON');
     }
     const result = SnapshotSchema.safeParse(raw);
-    return result.success
-      ? ok(result.data)
-      : fail(result.error.issues[0]?.message ?? 'bad snapshot');
+    return result.success ? ok(result.data) : fail(result.error.issues[0]?.message ?? 'bad snapshot');
   },
 };
 
@@ -61,7 +53,5 @@ export function pickCodec(name: CodecName): Codec {
 // і перевіряється в parseClientMessage. Схема тут для тестів і порівняння.
 export function parseInputJson(raw: unknown): Result<Input> {
   const result = InputSchema.safeParse(raw);
-  return result.success
-    ? ok(result.data)
-    : fail(result.error.issues[0]?.message ?? 'bad input');
+  return result.success ? ok(result.data) : fail(result.error.issues[0]?.message ?? 'bad input');
 }

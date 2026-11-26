@@ -30,9 +30,7 @@ export function replayPath(logDir: string, name: string): string | null {
   return path.join(logDir, name);
 }
 
-export async function listReplays(
-  logDir: string,
-): Promise<Array<{ id: string; bytes: number }>> {
+export async function listReplays(logDir: string): Promise<Array<{ id: string; bytes: number }>> {
   let names: string[];
   try {
     names = await readdir(logDir);
@@ -40,10 +38,7 @@ export async function listReplays(
     return []; // папки ще немає
   }
   const result: Array<{ id: string; bytes: number }> = [];
-  for (const name of names
-    .filter((n) => SAFE_NAME.test(n))
-    .sort()
-    .reverse()) {
+  for (const name of names.filter((n) => SAFE_NAME.test(n)).sort().reverse()) {
     const info = await stat(path.join(logDir, name));
     result.push({ id: name, bytes: info.size });
   }

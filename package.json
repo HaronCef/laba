@@ -1,7 +1,7 @@
 {
   "name": "space-duel",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "workspaces": [
     "client",
@@ -16,18 +16,25 @@
     "dev:server": "npm run dev --workspace=server",
     "build": "npm run build --workspace=client",
     "start": "npm run start --workspace=server",
-    "typecheck": "npm run typecheck --workspaces",
-    "test": "npm test --workspace=shared && npm test --workspace=server",
+    "typecheck": "npm run typecheck --workspaces && tsc -p e2e/tsconfig.json",
+    "test": "npm test --workspaces",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "e2e": "npm run build && playwright test",
+    "loadtest": "npm run loadtest --workspace=server"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
+    "@playwright/test": "^1.55.0",
     "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^3.2.4",
     "eslint": "^9.0.0",
+    "fast-check": "^4.3.0",
     "prettier": "^3.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.44.0",
+    "vitest": "^3.2.4"
   }
 }

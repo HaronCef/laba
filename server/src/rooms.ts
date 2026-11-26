@@ -4,7 +4,7 @@ import { Match } from './match.ts';
 import type { LogEvent } from './log/logEvent.ts';
 import type { Ship } from 'shared/sim/ship.ts';
 import type { WorldConfig } from 'shared/sim/world.ts';
-import type { PlayerId } from 'shared/types.ts';
+import { asPlayerId, type PlayerId } from 'shared/types.ts';
 import type { CodecName } from 'shared/codec/index.ts';
 import type { RoomInfo } from 'shared/protocol.ts';
 
@@ -29,8 +29,11 @@ export interface RoomEvents {
   chat: [conn: PlayerConn, text: string];
   empty: [];
   event: [event: LogEvent];
+  bots: [];
   closed: [];
 }
+
+export const MAX_BOTS = 16;
 
 interface RoomOptions {
   id: string;
@@ -62,23 +65,21 @@ export class Room extends EventEmitter<RoomEvents> {
     return this.players.size >= this.maxPlayers;
   }
 
+  #ensureMatch(): Match {
+    if (this.match) return this.match;
+    const match = new Match(this);
+    this.match = match;
+    match.start();
+    return match;
+  }
+
   // повертає корабель гравця і сам матч (щоб не перевіряти this.match на null ззовні)
   add(conn: PlayerConn): { ship: Ship; match: Match } {
-    const match = this.match ?? new Match(this);
-    if (!this.match) {
-      this.match = match;
-      match.start();
-    }
+    const match = this.#ensureMatch();
     const ship = match.addPlayer(conn);
     this.players.set(conn.id, { conn, ship });
     this.emit('join', conn);
-    this.emit('event', {
-      t: Date.now(),
-      room: this.id,
-      type: 'join',
-      player: conn.id,
-      name: conn.name,
-    });
+    this.emit('event', { t: Date.now(), room: this.id, type: 'join', player: conn.id, name: conn.name });
     return { ship, match };
   }
 
@@ -88,37 +89,44 @@ export class Room extends EventEmitter<RoomEvents> {
     this.players.delete(playerId);
     this.match?.removePlayer(playerId);
     this.emit('leave', member.conn);
-    this.emit('event', {
-      t: Date.now(),
-      room: this.id,
-      type: 'leave',
-      player: playerId,
-      name: member.conn.name,
-    });
+    this.emit('event', { t: Date.now(), room: this.id, type: 'leave', player: playerId, name: member.conn.name });
     if (this.players.size === 0) {
-      this.match?.stop();
-      this.match = null;
+      this.#stopMatch(); // боти без людей не грають
       this.emit('empty');
     }
   }
 
+  // боти не займають місць людей, але їх не більше MAX_BOTS
+  addBots(count: number): number {
+    const match = this.#ensureMatch();
+    const n = Math.max(0, Math.min(count, MAX_BOTS - match.bots.length));
+    for (let i = 0; i < n; i++) match.addBot(`bot-${match.bots.length + 1}`);
+    if (n > 0) this.emit('bots');
+    return match.bots.length;
+  }
+
+  removeBots(): void {
+    if (!this.match) return;
+    this.match.removeBots();
+    this.emit('bots');
+    if (this.players.size === 0) this.#stopMatch();
+  }
+
+  #stopMatch(): void {
+    this.match?.stop();
+    this.match = null;
+  }
+
   chat(conn: PlayerConn, text: string): void {
     this.emit('chat', conn, text);
-    this.emit('event', {
-      t: Date.now(),
-      room: this.id,
-      type: 'chat',
-      player: conn.id,
-      text,
-    });
+    this.emit('event', { t: Date.now(), room: this.id, type: 'chat', player: conn.id, text });
   }
 
   roster(): Array<{ id: PlayerId; name: string; shipId: Ship['netId'] }> {
-    return [...this.players.values()].map(({ conn, ship }) => ({
-      id: conn.id,
-      name: conn.name,
-      shipId: ship.netId,
-    }));
+    const people = [...this.players.values()].map(({ conn, ship }) => ({ id: conn.id, name: conn.name, shipId: ship.netId }));
+    // у ботів немає з'єднання, id для roster - умовний (0)
+    const bots = (this.match?.bots ?? []).map((b) => ({ id: asPlayerId(0), name: b.name, shipId: b.ship.netId }));
+    return [...people, ...bots];
   }
 
   toJSON(): RoomInfo {
@@ -133,24 +141,9 @@ export class Room extends EventEmitter<RoomEvents> {
 }
 
 const DEFAULT_ROOMS: RoomOptions[] = [
-  {
-    id: 'training',
-    name: 'Тренування',
-    maxPlayers: 8,
-    arena: { waveBase: 2, hunterEvery: 0, pickupEvery: 5 },
-  },
-  {
-    id: 'belt',
-    name: 'Пояс астероїдів',
-    maxPlayers: 8,
-    arena: { waveBase: 5, hunterEvery: 3, pickupEvery: 8 },
-  },
-  {
-    id: 'hunters',
-    name: 'Мисливці',
-    maxPlayers: 8,
-    arena: { waveBase: 4, hunterEvery: 1, pickupEvery: 10 },
-  },
+  { id: 'training', name: 'Тренування', maxPlayers: 8, arena: { waveBase: 2, hunterEvery: 0, pickupEvery: 5 } },
+  { id: 'belt', name: 'Пояс астероїдів', maxPlayers: 8, arena: { waveBase: 5, hunterEvery: 3, pickupEvery: 8 } },
+  { id: 'hunters', name: 'Мисливці', maxPlayers: 8, arena: { waveBase: 4, hunterEvery: 1, pickupEvery: 10 } },
 ];
 
 let nextRoomNumber = 1;
@@ -169,15 +162,7 @@ export class RoomManager extends EventEmitter<ManagerEvents> {
   readonly maxPlayersPerRoom: number;
   readonly logDir: string;
 
-  constructor({
-    maxRooms,
-    maxPlayersPerRoom,
-    logDir,
-  }: {
-    maxRooms: number;
-    maxPlayersPerRoom: number;
-    logDir: string;
-  }) {
+  constructor({ maxRooms, maxPlayersPerRoom, logDir }: { maxRooms: number; maxPlayersPerRoom: number; logDir: string }) {
     super();
     this.maxRooms = maxRooms;
     this.maxPlayersPerRoom = maxPlayersPerRoom;
@@ -249,6 +234,7 @@ export class RoomManager extends EventEmitter<ManagerEvents> {
     this.#rooms.delete(id);
     this.#logging.delete(id);
     room.match?.stop();
+    room.match = null;
     room.emit('closed'); // лог матчу закінчиться і допишеться у файл
   }
 

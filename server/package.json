@@ -1,15 +1,17 @@
 {
   "name": "server",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "start": "node --env-file=.env --import tsx src/index.ts",
     "dev": "node --env-file=.env --import tsx --watch src/index.ts",
-    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
     "make-big-log": "node --env-file=.env --import tsx scripts/make-big-log.ts",
-    "replay": "node --env-file=.env --import tsx scripts/replay.ts"
+    "replay": "node --env-file=.env --import tsx scripts/replay.ts",
+    "loadtest": "node --import tsx scripts/loadtest.ts",
+    "load-chart": "node --import tsx scripts/load-chart.ts"
   },
   "dependencies": {
     "shared": "*",

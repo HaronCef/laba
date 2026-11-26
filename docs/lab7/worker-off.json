@@ -1,0 +1,163 @@
+{
+  "label": "w-main",
+  "seconds": 20,
+  "timing": {
+    "gc": {
+      "minor": 6,
+      "minorMs": 9.74,
+      "major": 3,
+      "majorMs": 14.83
+    },
+    "frame": {
+      "n": 1248,
+      "p50": 0.6,
+      "p95": 0.9,
+      "p99": 1.2,
+      "max": 3
+    },
+    "rafGap": {
+      "n": 1247,
+      "p50": 16.7,
+      "p95": 16.8,
+      "p99": 17.3,
+      "max": 22
+    },
+    "simulate": {
+      "n": 624,
+      "p50": 0.1,
+      "p95": 0.2,
+      "p99": 0.3,
+      "max": 0.4
+    },
+    "render": {
+      "n": 1248,
+      "p50": 0.6,
+      "p95": 0.8,
+      "p99": 1.1,
+      "max": 2.6
+    },
+    "decode": {
+      "n": 624,
+      "p50": 0,
+      "p95": 0.1,
+      "p99": 0.2,
+      "max": 0.4
+    },
+    "reconcile": {
+      "n": 624,
+      "p50": 0,
+      "p95": 0.1,
+      "p99": 0.1,
+      "max": 0.1
+    },
+    "particles": {
+      "n": 1248,
+      "p50": 0.3,
+      "p95": 0.5,
+      "p99": 0.6,
+      "max": 0.8
+    },
+    "entities": 48,
+    "over16": 0,
+    "longGaps": 0
+  },
+  "profile": {
+    "gc": {
+      "minor": 6,
+      "minorMs": 8.46,
+      "major": 3,
+      "majorMs": 17.89
+    },
+    "selfTop": [
+      {
+        "fn": "fillRect (:0)",
+        "ms": 375.08,
+        "pct": 1.79
+      },
+      {
+        "fn": "drawParticles (main.js:225)",
+        "ms": 100.08,
+        "pct": 0.48
+      },
+      {
+        "fn": "save (:0)",
+        "ms": 73.77,
+        "pct": 0.35
+      },
+      {
+        "fn": "drawImage (:0)",
+        "ms": 62.94,
+        "pct": 0.3
+      },
+      {
+        "fn": "fillText (:0)",
+        "ms": 59.64,
+        "pct": 0.28
+      },
+      {
+        "fn": "update (main.js:21910)",
+        "ms": 46.38,
+        "pct": 0.22
+      },
+      {
+        "fn": "requestAnimationFrame (:0)",
+        "ms": 45.89,
+        "pct": 0.22
+      },
+      {
+        "fn": "send (:0)",
+        "ms": 26.27,
+        "pct": 0.13
+      }
+    ],
+    "special": [
+      {
+        "fn": "(program) (:0)",
+        "ms": 5052
+      },
+      {
+        "fn": "(idle) (:0)",
+        "ms": 14807.37
+      },
+      {
+        "fn": "(garbage collector) (:0)",
+        "ms": 41.61
+      }
+    ],
+    "allocTop": [
+      {
+        "fn": "readEntity (main.js:21123)",
+        "kb": 4902
+      },
+      {
+        "fn": "drawWorld (main.js:196)",
+        "kb": 2065
+      },
+      {
+        "fn": "next (:0)",
+        "kb": 2049
+      },
+      {
+        "fn": "random (:0)",
+        "kb": 1857
+      },
+      {
+        "fn": "draw (main.js:21669)",
+        "kb": 1585
+      },
+      {
+        "fn": "drawParticles (main.js:225)",
+        "kb": 1425
+      },
+      {
+        "fn": "getFloat32 (:0)",
+        "kb": 1168
+      },
+      {
+        "fn": "every (:0)",
+        "kb": 1152
+      }
+    ],
+    "allocTotalKb": 24212
+  }
+}

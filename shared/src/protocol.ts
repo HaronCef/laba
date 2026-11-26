@@ -1,5 +1,13 @@
 import { z } from 'zod';
-import { asEntityId, asPlayerId, asSeq, asTick, fail, ok, type Result } from './types.ts';
+import {
+  asEntityId,
+  asPlayerId,
+  asSeq,
+  asTick,
+  fail,
+  ok,
+  type Result,
+} from './types.ts';
 
 // Протокол гри - єдине джерело правди. Для кожного JSON-повідомлення є Zod-схема,
 // а TypeScript-тип виводиться з неї (z.infer), тому схема і тип не можуть розійтися.
@@ -63,14 +71,7 @@ export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
 // ---------- знімок ----------
 
-const entityBase = {
-  id: EntityIdSchema,
-  x: coord,
-  y: coord,
-  vx: coord,
-  vy: coord,
-  angle: coord,
-};
+const entityBase = { id: EntityIdSchema, x: coord, y: coord, vx: coord, vy: coord, angle: coord };
 
 export const EntityRecordSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -84,25 +85,9 @@ export const EntityRecordSchema = z.discriminatedUnion('kind', [
     missileCd: z.number().int().min(0).max(255),
     hp: u16,
   }),
-  z.object({
-    kind: z.literal('bullet'),
-    ...entityBase,
-    missile: z.boolean(),
-    owner: EntityIdSchema,
-    shotId: u16,
-  }),
-  z.object({
-    kind: z.literal('asteroid'),
-    ...entityBase,
-    big: z.boolean(),
-    hunter: z.boolean(),
-    hp: u16,
-  }),
-  z.object({
-    kind: z.literal('pickup'),
-    ...entityBase,
-    effect: z.enum(['shield', 'triple']),
-  }),
+  z.object({ kind: z.literal('bullet'), ...entityBase, missile: z.boolean(), owner: EntityIdSchema, shotId: u16 }),
+  z.object({ kind: z.literal('asteroid'), ...entityBase, big: z.boolean(), hunter: z.boolean(), hp: u16 }),
+  z.object({ kind: z.literal('pickup'), ...entityBase, effect: z.enum(['shield', 'triple']) }),
 ]);
 export type EntityRecord = Readonly<z.infer<typeof EntityRecordSchema>>;
 export type EntityKind = EntityRecord['kind'];
@@ -120,18 +105,8 @@ export type Snapshot = Readonly<z.infer<typeof SnapshotSchema>>;
 const xy = { x: coord, y: coord };
 
 export const GameEventSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('fired'),
-    ship: EntityIdSchema,
-    missile: z.boolean(),
-    ...xy,
-  }),
-  z.object({
-    type: z.literal('hit'),
-    target: z.enum(['asteroid', 'ship']),
-    ship: EntityIdSchema.optional(),
-    ...xy,
-  }),
+  z.object({ type: z.literal('fired'), ship: EntityIdSchema, missile: z.boolean(), ...xy }),
+  z.object({ type: z.literal('hit'), target: z.enum(['asteroid', 'ship']), ship: EntityIdSchema.optional(), ...xy }),
   z.object({
     type: z.literal('exploded'),
     kind: z.enum(['asteroid', 'ship']),
@@ -139,19 +114,8 @@ export const GameEventSchema = z.discriminatedUnion('type', [
     ship: EntityIdSchema.optional(),
     ...xy,
   }),
-  z.object({
-    type: z.literal('pickup'),
-    effect: z.enum(['shield', 'triple']),
-    ship: EntityIdSchema,
-    ...xy,
-  }),
-  z.object({
-    type: z.literal('score'),
-    ship: EntityIdSchema,
-    score: z.number().int(),
-    delta: z.number().int(),
-    ...xy,
-  }),
+  z.object({ type: z.literal('pickup'), effect: z.enum(['shield', 'triple']), ship: EntityIdSchema, ...xy }),
+  z.object({ type: z.literal('score'), ship: EntityIdSchema, score: z.number().int(), delta: z.number().int(), ...xy }),
 ]);
 export type GameEvent = Readonly<z.infer<typeof GameEventSchema>>;
 export type GameEventType = GameEvent['type'];
@@ -184,23 +148,10 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   z.object({
     v,
     type: z.literal('roster'),
-    players: z.array(
-      z.object({ id: PlayerIdSchema, name: z.string(), shipId: EntityIdSchema }),
-    ),
+    players: z.array(z.object({ id: PlayerIdSchema, name: z.string(), shipId: EntityIdSchema })),
   }),
-  z.object({
-    v,
-    type: z.literal('chat'),
-    from: z.string(),
-    text: z.string(),
-    t: z.number(),
-  }),
-  z.object({
-    v,
-    type: z.literal('events'),
-    tick: TickSchema,
-    list: z.array(GameEventSchema),
-  }),
+  z.object({ v, type: z.literal('chat'), from: z.string(), text: z.string(), t: z.number() }),
+  z.object({ v, type: z.literal('events'), tick: TickSchema, list: z.array(GameEventSchema) }),
   z.object({ v, type: z.literal('pong'), t: z.number() }),
   z.object({ v, type: z.literal('error'), code: z.number().int(), message: z.string() }),
   SnapshotSchema.extend({ v, type: z.literal('snapshot') }),
@@ -231,32 +182,24 @@ export interface ParseError {
 
 // окремі маленькі схеми, щоб віддати правильний код закриття
 const HasVersion = z.object({ v });
-const HasKnownType = z.object({
-  type: z.enum(['join', 'chat', 'leave', 'input', 'ping', 'netsim']),
-});
+const HasKnownType = z.object({ type: z.enum(['join', 'chat', 'leave', 'input', 'ping', 'netsim']) });
 
 // Приймає будь-що (unknown) і ніколи не кидає виняток: або повідомлення, або код помилки.
 export function parseClientMessage(data: unknown): Result<ClientMessage, ParseError> {
-  if (typeof data !== 'string')
-    return fail({ code: CLOSE.BAD_MESSAGE, reason: 'not text' });
+  if (typeof data !== 'string') return fail({ code: CLOSE.BAD_MESSAGE, reason: 'not text' });
   let raw: unknown;
   try {
     raw = JSON.parse(data);
   } catch {
     return fail({ code: CLOSE.BAD_MESSAGE, reason: 'not JSON' });
   }
-  if (!HasVersion.safeParse(raw).success)
-    return fail({ code: CLOSE.BAD_VERSION, reason: 'bad version' });
-  if (!HasKnownType.safeParse(raw).success)
-    return fail({ code: CLOSE.UNKNOWN_TYPE, reason: 'unknown type' });
+  if (!HasVersion.safeParse(raw).success) return fail({ code: CLOSE.BAD_VERSION, reason: 'bad version' });
+  if (!HasKnownType.safeParse(raw).success) return fail({ code: CLOSE.UNKNOWN_TYPE, reason: 'unknown type' });
 
   const result = ClientMessageSchema.safeParse(raw);
   if (!result.success) {
     const first = result.error.issues[0];
-    return fail({
-      code: CLOSE.BAD_MESSAGE,
-      reason: first ? `${first.path.join('.')}: ${first.message}` : 'bad message',
-    });
+    return fail({ code: CLOSE.BAD_MESSAGE, reason: first ? `${first.path.join('.')}: ${first.message}` : 'bad message' });
   }
   return ok(result.data);
 }
@@ -270,9 +213,7 @@ export function parseServerMessage(data: unknown): Result<ServerMessage> {
     return fail('not JSON');
   }
   const result = ServerMessageSchema.safeParse(raw);
-  return result.success
-    ? ok(result.data)
-    : fail(result.error.issues[0]?.message ?? 'bad message');
+  return result.success ? ok(result.data) : fail(result.error.issues[0]?.message ?? 'bad message');
 }
 
 // Повідомлення без поля v. "M extends unknown ? ... : never" - так Omit застосовується

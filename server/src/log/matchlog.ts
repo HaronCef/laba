@@ -12,11 +12,7 @@ export class NdjsonTransform extends Transform {
     super({ writableObjectMode: true });
   }
 
-  override _transform(
-    event: unknown,
-    _encoding: BufferEncoding,
-    callback: TransformCallback,
-  ): void {
+  override _transform(event: unknown, _encoding: BufferEncoding, callback: TransformCallback): void {
     callback(null, JSON.stringify(event) + '\n');
   }
 }
@@ -44,9 +40,5 @@ export function startMatchLog(room: Room, logDir: string): Promise<string> {
   }
 
   // pipeline сам стежить за backpressure, передає помилки і закриває всі потоки
-  return pipeline(
-    Readable.from(roomEvents()),
-    new NdjsonTransform(),
-    createWriteStream(file),
-  ).then(() => file);
+  return pipeline(Readable.from(roomEvents()), new NdjsonTransform(), createWriteStream(file)).then(() => file);
 }

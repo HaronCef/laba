@@ -3,18 +3,13 @@ import { assertNever, type EntityId } from 'shared/types.ts';
 import type { Arena } from 'shared/sim/arena.ts';
 import type { Sprites } from '../assets/loader.ts';
 import type { Drawable } from './drawable.ts';
+import type { ParticlePool } from './particles.ts';
 
 // Малювання. Світ рахує сервер, тому тут на вхід ідуть не сутності,
 // а прості об'єкти Drawable з NetClient.renderList() у координатах арени.
 
 type Ctx = CanvasRenderingContext2D;
-type ShipDrawable = Extract<Drawable, { kind: 'ship' }>;
-type Star = {
-  readonly x: number;
-  readonly y: number;
-  readonly r: number;
-  readonly bright: number;
-};
+type Star = { readonly x: number; readonly y: number; readonly r: number; readonly bright: number };
 
 // Зірки зберігаємо у відносних координатах (0..1), щоб при зміні розміру
 // вікна вони не збивались в один кут.
@@ -31,29 +26,32 @@ export function createStars(count: number): Star[] {
   return stars;
 }
 
-export function drawBackground(
-  ctx: Ctx,
-  width: number,
-  height: number,
-  stars: readonly Star[],
-): void {
-  ctx.fillStyle = '#05060f';
-  ctx.fillRect(0, 0, width, height);
+// Фон малюємо один раз в окремий canvas, а потім лише копіюємо
+// (раніше кожен кадр для кожної зірки створювався рядок rgba(...)).
+let background: { canvas: HTMLCanvasElement; width: number; height: number } | null = null;
 
-  for (const star of stars) {
-    ctx.fillStyle = `rgba(255, 255, 255, ${star.bright})`;
-    ctx.beginPath();
-    ctx.arc(star.x * width, star.y * height, star.r, 0, Math.PI * 2);
-    ctx.fill();
+export function drawBackground(ctx: Ctx, width: number, height: number, stars: readonly Star[]): void {
+  if (!background || background.width !== width || background.height !== height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const bg = canvas.getContext('2d');
+    if (!bg) return;
+    bg.fillStyle = '#05060f';
+    bg.fillRect(0, 0, width, height);
+    for (const star of stars) {
+      bg.fillStyle = `rgba(255, 255, 255, ${star.bright})`;
+      bg.beginPath();
+      bg.arc(star.x * width, star.y * height, star.r, 0, Math.PI * 2);
+      bg.fill();
+    }
+    background = { canvas, width, height };
   }
+  ctx.drawImage(background.canvas, 0, 0);
 }
 
 // Арена однакова для всіх (1280x720), тому вписуємо її у вікно
-export function arenaView(
-  width: number,
-  height: number,
-  arena: Arena,
-): { scale: number; x: number; y: number } {
+export function arenaView(width: number, height: number, arena: Arena): { scale: number; x: number; y: number } {
   const scale = Math.min(width / arena.width, height / arena.height);
   return {
     scale,
@@ -64,19 +62,13 @@ export function arenaView(
 
 // Кадр зі спрайтшита: drawImage з прямокутником-джерелом (sx, sy, sw, sh).
 // Кадри йдуть в один рядок, кожен frameSize x frameSize, носом вправо.
-function drawSprite(
-  ctx: Ctx,
-  sprites: Sprites,
-  frame: string,
-  e: { x: number; y: number; angle: number },
-  size: number,
-): void {
+function drawSprite(ctx: Ctx, sprites: Sprites, frame: string, x: number, y: number, angle: number, size: number): void {
   const index = sprites.frames.indexOf(frame);
   if (index === -1) return; // такого кадру в маніфесті немає
   const fs = sprites.frameSize;
   ctx.save();
-  ctx.translate(e.x, e.y);
-  ctx.rotate(e.angle);
+  ctx.translate(x, y);
+  ctx.rotate(angle);
   ctx.drawImage(sprites.image, index * fs, 0, fs, fs, -size / 2, -size / 2, size, size);
   ctx.restore();
 }
@@ -84,7 +76,7 @@ function drawSprite(
 // ---------- запасні фігури, якщо спрайти не завантажились ----------
 
 // Корабель малюємо в точці (0, 0) носом вправо, а translate/rotate ставлять його на місце
-function drawShipShape(ctx: Ctx, ship: ShipDrawable): void {
+function drawShipShape(ctx: Ctx, ship: Drawable): void {
   ctx.save();
   ctx.translate(ship.x, ship.y);
   ctx.rotate(ship.angle);
@@ -122,7 +114,7 @@ function asteroidShape(id: EntityId): number[] {
   return shape;
 }
 
-function drawAsteroidShape(ctx: Ctx, a: Extract<Drawable, { kind: 'asteroid' }>): void {
+function drawAsteroidShape(ctx: Ctx, a: Drawable): void {
   const radius = a.big ? 30 : 15;
   const shape = asteroidShape(a.id);
   ctx.save();
@@ -143,14 +135,14 @@ function drawAsteroidShape(ctx: Ctx, a: Extract<Drawable, { kind: 'asteroid' }>)
   ctx.restore();
 }
 
-function drawBulletShape(ctx: Ctx, b: Extract<Drawable, { kind: 'bullet' }>): void {
+function drawBulletShape(ctx: Ctx, b: Drawable): void {
   ctx.fillStyle = b.missile ? '#ff7b3a' : '#fff6a0';
   ctx.beginPath();
   ctx.arc(b.x, b.y, b.missile ? 5 : 3, 0, Math.PI * 2);
   ctx.fill();
 }
 
-function drawPickupShape(ctx: Ctx, p: Extract<Drawable, { kind: 'pickup' }>): void {
+function drawPickupShape(ctx: Ctx, p: Drawable): void {
   const isShield = p.effect === 'shield';
   ctx.save();
   ctx.strokeStyle = isShield ? '#78dcff' : '#c78bff';
@@ -166,7 +158,7 @@ function drawPickupShape(ctx: Ctx, p: Extract<Drawable, { kind: 'pickup' }>): vo
   ctx.restore();
 }
 
-function drawShield(ctx: Ctx, ship: ShipDrawable): void {
+function drawShield(ctx: Ctx, ship: Drawable): void {
   ctx.strokeStyle = 'rgba(120, 220, 255, 0.8)';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -174,7 +166,7 @@ function drawShield(ctx: Ctx, ship: ShipDrawable): void {
   ctx.stroke();
 }
 
-function drawName(ctx: Ctx, ship: ShipDrawable, name: string | undefined): void {
+function drawName(ctx: Ctx, ship: Drawable, name: string | undefined): void {
   if (!name) return;
   ctx.save();
   ctx.font = '11px monospace';
@@ -185,96 +177,51 @@ function drawName(ctx: Ctx, ship: ShipDrawable, name: string | undefined): void 
 }
 
 // list - з NetClient.renderList(), names - Map shipId -> ім'я
-export function drawWorld(
-  ctx: Ctx,
-  list: readonly Drawable[],
-  sprites: Sprites | null,
-  names: ReadonlyMap<EntityId, string>,
-): void {
+export function drawWorld(ctx: Ctx, list: readonly Drawable[], sprites: Sprites | null, names: ReadonlyMap<EntityId, string>): void {
   for (const e of list) {
     switch (e.kind) {
       case 'ship':
         if (e.dead) break;
-        if (sprites) drawSprite(ctx, sprites, e.thrust ? 'ship_thrust' : 'ship', e, 44);
+        if (sprites) drawSprite(ctx, sprites, e.thrust ? 'ship_thrust' : 'ship', e.x, e.y, e.angle, 44);
         else drawShipShape(ctx, e);
         if (e.shield) drawShield(ctx, e);
         drawName(ctx, e, names.get(e.id));
         break;
       case 'bullet':
-        if (sprites)
-          drawSprite(
-            ctx,
-            sprites,
-            e.missile ? 'missile' : 'bullet',
-            e,
-            e.missile ? 26 : 10,
-          );
+        if (sprites) drawSprite(ctx, sprites, e.missile ? 'missile' : 'bullet', e.x, e.y, e.angle, e.missile ? 26 : 10);
         else drawBulletShape(ctx, e);
         break;
       case 'asteroid': {
-        const frame = (e.hunter ? 'hunter_' : 'rock_') + (e.big ? 'big' : 'small');
-        if (sprites) drawSprite(ctx, sprites, frame, e, e.big ? 66 : 33);
+        // готові рядки замість 'rock_' + 'big' у кожному кадрі
+        const frame = e.hunter ? (e.big ? 'hunter_big' : 'hunter_small') : e.big ? 'rock_big' : 'rock_small';
+        if (sprites) drawSprite(ctx, sprites, frame, e.x, e.y, e.angle, e.big ? 66 : 33);
         else drawAsteroidShape(ctx, e);
         break;
       }
       case 'pickup':
-        if (sprites)
-          drawSprite(ctx, sprites, `pickup_${e.effect}`, { ...e, angle: 0 }, 30);
+        if (sprites) drawSprite(ctx, sprites, e.effect === 'shield' ? 'pickup_shield' : 'pickup_triple', e.x, e.y, 0, 30);
         else drawPickupShape(ctx, e);
         break;
       default:
-        assertNever(e);
+        assertNever(e.kind);
     }
   }
 }
 
 // ---------- вибухи (лише на клієнті, по подіях сервера) ----------
 
-export interface Explosion {
-  readonly particles: Array<{
-    x: number;
-    y: number;
-    readonly vx: number;
-    readonly vy: number;
-  }>;
-  readonly color: string;
-  life: number;
-}
-
-export function createExplosion(
-  x: number,
-  y: number,
-  count: number,
-  color = '#ffb347',
-): Explosion {
-  const particles: Explosion['particles'] = [];
-  for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = 40 + Math.random() * 160;
-    particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+// Частинки живуть у пулі (particles.ts): вибух не створює нових об'єктів.
+export function drawParticles(ctx: Ctx, pool: ParticlePool, dt: number): void {
+  pool.update(dt);
+  ctx.save();
+  for (let i = 0; i < pool.active; i++) {
+    const p = pool.items[i];
+    if (!p) break;
+    ctx.globalAlpha = p.life > 0 ? p.life : 0;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
   }
-  return { particles, color, life: 1 };
-}
-
-// оновлює і малює; повертає лише ті, що ще не догоріли
-export function drawExplosions(
-  ctx: Ctx,
-  explosions: Explosion[],
-  dt: number,
-): Explosion[] {
-  for (const ex of explosions) {
-    ex.life -= dt / 0.8;
-    ctx.save();
-    ctx.globalAlpha = Math.max(0, ex.life);
-    ctx.fillStyle = ex.color;
-    for (const p of ex.particles) {
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
-    }
-    ctx.restore();
-  }
-  return explosions.filter((ex) => ex.life > 0);
+  ctx.restore();
 }
 
 export function drawHud(ctx: Ctx, lines: readonly string[]): void {
@@ -286,8 +233,7 @@ export function drawHud(ctx: Ctx, lines: readonly string[]): void {
   ctx.fillRect(10, 10, 450, lines.length * lineHeight + 14);
 
   ctx.fillStyle = '#9dff9d';
-  // lines[i] з noUncheckedIndexedAccess - string | undefined, тому forEach
-  lines.forEach((line, i) => ctx.fillText(line, 20, 30 + i * lineHeight));
+  for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i] ?? '', 20, 30 + i * lineHeight);
   ctx.restore();
 }
 
@@ -299,12 +245,7 @@ export interface LoadingState {
   failed: boolean;
 }
 
-export function drawLoading(
-  ctx: Ctx,
-  width: number,
-  height: number,
-  state: LoadingState,
-): void {
+export function drawLoading(ctx: Ctx, width: number, height: number, state: LoadingState): void {
   ctx.fillStyle = '#05060f';
   ctx.fillRect(0, 0, width, height);
 

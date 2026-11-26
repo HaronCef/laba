@@ -20,15 +20,7 @@ export class Bullet extends Entity {
   readonly damage: number;
   ttl: number; // скільки секунд ще живе
 
-  constructor({
-    pos,
-    vel,
-    ownerId,
-    shotId = 0,
-    ttl = 1.2,
-    damage = 1,
-    radius = 3,
-  }: BulletOptions) {
+  constructor({ pos, vel, ownerId, shotId = 0, ttl = 1.2, damage = 1, radius = 3 }: BulletOptions) {
     super({ pos, vel, angle: vel.angle(), radius });
     this.ownerId = ownerId;
     this.shotId = shotId;

@@ -1,13 +1,13 @@
 {
   "name": "shared",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "exports": {
     "./*": "./src/*"
   },
   "scripts": {
-    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "test": "vitest run --coverage",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
   },
   "dependencies": {

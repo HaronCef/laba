@@ -1,0 +1,74 @@
+[
+ {
+  "n": 8,
+  "entities": 57,
+  "tickP50": 0.38,
+  "tickP95": 0.77,
+  "tickP99": 1.02,
+  "tickMax": 4.37,
+  "overruns": 0,
+  "elu": 0.025,
+  "rssMb": 114.5,
+  "outMBs": 0.37
+ },
+ {
+  "n": 32,
+  "entities": 122,
+  "tickP50": 1.51,
+  "tickP95": 2.36,
+  "tickP99": 2.65,
+  "tickMax": 4.08,
+  "overruns": 0,
+  "elu": 0.066,
+  "rssMb": 117.1,
+  "outMBs": 3.84
+ },
+ {
+  "n": 64,
+  "entities": 220,
+  "tickP50": 3.54,
+  "tickP95": 5.61,
+  "tickP99": 7.57,
+  "tickMax": 14.35,
+  "overruns": 0,
+  "elu": 0.148,
+  "rssMb": 133.9,
+  "outMBs": 12.09
+ },
+ {
+  "n": 128,
+  "entities": 329,
+  "tickP50": 8.13,
+  "tickP95": 12.98,
+  "tickP99": 17.28,
+  "tickMax": 76.26,
+  "overruns": 1,
+  "elu": 0.321,
+  "rssMb": 138.2,
+  "outMBs": 37.72
+ },
+ {
+  "n": 192,
+  "entities": 415,
+  "tickP50": 12.36,
+  "tickP95": 17.33,
+  "tickP99": 19.42,
+  "tickMax": 56.38,
+  "overruns": 1,
+  "elu": 0.436,
+  "rssMb": 143.7,
+  "outMBs": 72.44
+ },
+ {
+  "n": 256,
+  "entities": 473,
+  "tickP50": 16.64,
+  "tickP95": 23.71,
+  "tickP99": 28.11,
+  "tickMax": 38.63,
+  "overruns": 1,
+  "elu": 0.581,
+  "rssMb": 155.2,
+  "outMBs": 113.95
+ }
+]

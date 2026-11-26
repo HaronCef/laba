@@ -9,9 +9,7 @@ function createShip(): Motion {
 
 const STEP = 1 / 60;
 const TIME = 5;
-const controls = { turn: 0, thrust: true, flip: false } satisfies Parameters<
-  typeof integrate
->[1];
+const controls = { turn: 0, thrust: true, flip: false } satisfies Parameters<typeof integrate>[1];
 
 // послідовність тривалостей кадрів (у секундах) на 5 секунд
 function makeFrames(fps: number, jitter: number): number[] {

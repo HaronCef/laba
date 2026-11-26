@@ -11,20 +11,11 @@ export interface Homing {
   readonly range: number; // px
 }
 
-export function makeHoming(
-  targetKind: EntityKind,
-  turnRate: number,
-  range: number,
-): Homing {
+export function makeHoming(targetKind: EntityKind, turnRate: number, range: number): Homing {
   return { targetKind, turnRate, range };
 }
 
-function findNearest(
-  world: World,
-  entity: AnyEntity,
-  kind: EntityKind,
-  range: number,
-): AnyEntity | null {
+function findNearest(world: World, entity: AnyEntity, kind: EntityKind, range: number): AnyEntity | null {
   let best: AnyEntity | null = null;
   let bestDist = range;
   for (const other of world.ofKind(kind)) {

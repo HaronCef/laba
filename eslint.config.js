@@ -1,23 +1,42 @@
 import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
 
-// ESLint перевіряє лише JS-файли, що лишились (конфіги інструментів).
-// Увесь код гри тепер на TypeScript, і його перевіряє tsc у strict-режимі (npm run typecheck).
-const node = {
-  process: 'readonly',
-  Buffer: 'readonly',
-  console: 'readonly',
-  setTimeout: 'readonly',
-  URL: 'readonly',
-};
-
-export default [
-  { ignores: ['**/dist/', '**/node_modules/', 'server/logs/', '**/*.ts'] },
-  js.configs.recommended,
+// ESLint з типами. Головне правило - no-floating-promises
+// (Promise без await або .catch - помилку ніхто не побачить).
+export default tseslint.config(
+  { ignores: ['**/dist/', '**/node_modules/', 'server/logs/', 'client/experiments/', 'playwright-report/', 'test-results/', 'coverage/', '**/coverage/'] },
   {
-    languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: node },
+    files: ['**/*.js'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: { process: 'readonly', Buffer: 'readonly', console: 'readonly', setTimeout: 'readonly', URL: 'readonly' },
+    },
+    rules: { 'no-var': 'error', 'prefer-const': 'error' },
+  },
+  {
+    files: ['**/*.ts'],
+    extends: [tseslint.configs.base],
+    languageOptions: {
+      parserOptions: {
+        // кожен .ts файл має належати одному з цих tsconfig
+        project: [
+          './shared/tsconfig.test.json',
+          './server/tsconfig.json',
+          './client/tsconfig.test.json',
+          './client/tsconfig.scripts.json',
+          './e2e/tsconfig.json',
+        ],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     rules: {
-      'no-var': 'error',
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
       'prefer-const': 'error',
+      'no-var': 'error',
     },
   },
-];
+);

@@ -15,8 +15,7 @@ import {
 //  - якщо з'єднання обірвалось, підключається знову з дедалі довшою паузою;
 //  - рахує байти туди й назад (для netgraph).
 
-export type ConnectionStatus =
-  'connecting' | 'reconnecting' | 'waiting' | 'open' | 'closed';
+export type ConnectionStatus = 'connecting' | 'reconnecting' | 'waiting' | 'open' | 'closed';
 
 // З union повідомлень сервера робимо "карту подій": { joined: JoinedMsg; roster: RosterMsg; ... }
 type ServerEvents = { [M in ServerMessage as M['type']]: M };
@@ -97,16 +96,13 @@ export class Connection extends Bus<ConnectionEvents> {
       const delay = Math.min(10000, 500 * 2 ** this.#attempt) + Math.random() * 300;
       this.#attempt++;
       this.#setStatus('waiting', event.code);
-      console.log(
-        `[net] з'єднання закрито (${event.code}), ще раз через ${Math.round(delay)} мс`,
-      );
+      console.log(`[net] з'єднання закрито (${event.code}), ще раз через ${Math.round(delay)} мс`);
       this.#timer = setTimeout(() => this.#connect(), delay);
     };
   }
 
   #rawSend(ws: WebSocket, data: string | ArrayBuffer): void {
-    this.bytesOut +=
-      typeof data === 'string' ? encoder.encode(data).length : data.byteLength;
+    this.bytesOut += typeof data === 'string' ? encoder.encode(data).length : data.byteLength;
     ws.send(data);
   }
 

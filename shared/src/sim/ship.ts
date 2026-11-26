@@ -117,9 +117,7 @@ export function stepShip(
 
   if (input.fire && shotCd === 0) {
     const spreads = state.triple ? [-0.2, 0, 0.2] : [0];
-    spreads.forEach((spread, i) =>
-      shots.push(makeShot(pos, pos.angle + spread, false, i)),
-    );
+    spreads.forEach((spread, i) => shots.push(makeShot(pos, pos.angle + spread, false, i)));
     shotCd = SHOT_COOLDOWN_STEPS;
   }
   if (input.missile && missileCd === 0) {
@@ -180,10 +178,7 @@ export class Ship extends Entity {
     return false;
   }
 
-  applyPickup(pickup: {
-    readonly effect: PickupEffect;
-    readonly duration: number;
-  }): void {
+  applyPickup(pickup: { readonly effect: PickupEffect; readonly duration: number }): void {
     this.effects[pickup.effect] = pickup.duration;
   }
 
@@ -226,13 +221,7 @@ export class Ship extends Entity {
     // у JS тут було shots[0].missile - з noUncheckedIndexedAccess TypeScript вимагає перевірку
     const first = shots[0];
     if (first) {
-      world.emit({
-        type: 'fired',
-        ship: this.netId,
-        missile: first.missile,
-        x: this.pos.x,
-        y: this.pos.y,
-      });
+      world.emit({ type: 'fired', ship: this.netId, missile: first.missile, x: this.pos.x, y: this.pos.y });
     }
   }
 

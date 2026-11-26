@@ -12,21 +12,25 @@ interface Popup {
 
 export function createHud(net: NetClient) {
   let score = 0;
+  let scoreText = 'SCORE 0'; // оновлюємо лише коли рахунок змінився
   let popups: Popup[] = []; // написи "+100", що злітають вгору
 
   net.on('score', (e) => {
     if (e.ship !== net.shipId) return;
     score = e.score;
+    scoreText = `SCORE ${score}`;
     popups.push({ text: `+${e.delta}`, x: e.x, y: e.y, born: performance.now() });
   });
   net.on('joined', () => {
     score = 0; // новий корабель після перепідключення
+    scoreText = 'SCORE 0';
   });
 
   // написи малюються в координатах арени (всередині її transform)
   function drawPopups(ctx: CanvasRenderingContext2D): void {
     const now = performance.now();
-    popups = popups.filter((p) => now - p.born < 800);
+    if (popups.length === 0) return;
+    if (popups.some((p) => now - p.born >= 800)) popups = popups.filter((p) => now - p.born < 800);
     ctx.save();
     ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'center';
@@ -44,7 +48,7 @@ export function createHud(net: NetClient) {
     ctx.font = 'bold 22px monospace';
     ctx.textAlign = 'right';
     ctx.fillStyle = '#ffe27a';
-    ctx.fillText(`SCORE ${score}`, width - 20, 36);
+    ctx.fillText(scoreText, width - 20, 36);
     ctx.restore();
   }
 

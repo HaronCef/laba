@@ -10,11 +10,7 @@ export const NO_NETSIM: Netsim = { lag: 0, jitter: 0, drop: 0 };
 
 // Викликає fn пізніше (або ніколи, якщо пакет "загубився").
 // Math.random тут можна: це не симуляція гри, а імітація мережі.
-export function throughNetsim(
-  net: Netsim,
-  fn: () => void,
-  { droppable = false } = {},
-): boolean {
+export function throughNetsim(net: Netsim, fn: () => void, { droppable = false } = {}): boolean {
   if (droppable && net.drop > 0 && Math.random() < net.drop) return false;
   if (net.lag === 0 && net.jitter === 0) {
     fn();
