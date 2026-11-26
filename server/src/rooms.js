@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { startMatchLog } from './log/matchlog.js';
+import { Match } from './match.js';
 
 // Кімната. Події:
 //   'join'  (player)        'leave' (player)        'chat' (player, text)
@@ -15,6 +16,7 @@ export class Room extends EventEmitter {
     this.arena = arena;
     this.permanent = permanent; // стандартні кімнати не видаляються
     this.players = new Map(); // id гравця -> { id, name, socket }
+    this.match = null; // гра йде, поки в кімнаті є хоч хтось
   }
 
   get isFull() {
@@ -26,6 +28,11 @@ export class Room extends EventEmitter {
   }
 
   add(player) {
+    if (!this.match) {
+      this.match = new Match(this);
+      this.match.start();
+    }
+    player.ship = this.match.addPlayer(player);
     this.players.set(player.id, player);
     this.emit('join', player);
     this.#log('join', { player: player.id, name: player.name });
@@ -35,9 +42,12 @@ export class Room extends EventEmitter {
     const player = this.players.get(playerId);
     if (!player) return;
     this.players.delete(playerId);
+    this.match?.removePlayer(playerId);
     this.emit('leave', player);
     this.#log('leave', { player: player.id, name: player.name });
     if (this.players.size === 0) {
+      this.match?.stop();
+      this.match = null;
       this.emit('empty');
     }
   }
@@ -48,7 +58,11 @@ export class Room extends EventEmitter {
   }
 
   roster() {
-    return [...this.players.values()].map((p) => ({ id: p.id, name: p.name }));
+    return [...this.players.values()].map((p) => ({
+      id: p.id,
+      name: p.name,
+      shipId: p.ship.netId,
+    }));
   }
 
   toJSON() {
@@ -160,6 +174,7 @@ export class RoomManager extends EventEmitter {
     if (!room) return;
     this.#rooms.delete(id);
     this.#logging.delete(id);
+    room.match?.stop();
     room.emit('closed'); // лог матчу закінчиться і допишеться у файл
   }
 

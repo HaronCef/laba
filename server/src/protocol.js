@@ -1,13 +1,23 @@
-// Протокол v0. Кожне повідомлення - JSON з полями v (версія) і type.
+import { isValidInput } from 'shared/protocol.js';
+import { isValidNetsim } from './netsim.js';
+
+// Текстовий протокол v0. Кожне повідомлення - JSON з полями v (версія) і type.
+// (input і snapshot за замовчуванням бінарні - див. shared/src/codec/binary.js)
 //
 // клієнт -> сервер:
-//   { v: 0, type: 'join', room, name }
+//   { v: 0, type: 'join', room, name, codec?: 'binary'|'json', net?: { lag, jitter, drop } }
 //   { v: 0, type: 'chat', text }
 //   { v: 0, type: 'leave' }
+//   { v: 0, type: 'input', seq, turn, thrust, fire, missile, flip }  - лише з codec 'json'
+//   { v: 0, type: 'ping', t }                 - для RTT
+//   { v: 0, type: 'netsim', lag, jitter, drop } - змінити штучну затримку на льоту
 // сервер -> клієнт:
-//   { v: 0, type: 'joined', room, you }       - вхід успішний
-//   { v: 0, type: 'roster', players: [...] }  - хто зараз у кімнаті
+//   { v: 0, type: 'joined', room, you, shipId, seed, tick }
+//   { v: 0, type: 'roster', players: [{ id, name, shipId }] }
 //   { v: 0, type: 'chat', from, text, t }
+//   { v: 0, type: 'events', tick, list }      - постріли, вибухи, очки (для звуку й ефектів)
+//   { v: 0, type: 'pong', t }
+//   { v: 0, type: 'snapshot', ... }           - лише з codec 'json'
 //   { v: 0, type: 'error', code, message }    - перед закриттям сокета
 
 export const VERSION = 0;
@@ -41,9 +51,14 @@ const shapes = {
   join: (m) =>
     isString(m.room, 1, 32) &&
     ROOM_ID.test(m.room) &&
-    isString(m.name, 1, MAX_NAME_LENGTH),
+    isString(m.name, 1, MAX_NAME_LENGTH) &&
+    (m.codec === undefined || m.codec === 'binary' || m.codec === 'json') &&
+    (m.net === undefined || isValidNetsim(m.net)),
   chat: (m) => isString(m.text, 1, MAX_CHAT_LENGTH),
   leave: () => true,
+  input: (m) => isValidInput(m),
+  ping: (m) => Number.isFinite(m.t),
+  netsim: (m) => isValidNetsim(m),
 };
 
 // Повертає { ok: true, msg } або { ok: false, code, reason }

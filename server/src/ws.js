@@ -1,40 +1,65 @@
 import { WebSocketServer } from 'ws';
+import { decodeInput } from 'shared/codec/binary.js';
+import { isValidInput } from 'shared/protocol.js';
 import { CLOSE, MAX_MESSAGE_BYTES, make, validate } from './protocol.js';
+import { NO_NETSIM, throughNetsim } from './netsim.js';
 
 const JOIN_TIMEOUT_MS = 5000;
 const PING_INTERVAL_MS = 15000;
 const MAX_MISSED_PONGS = 2;
 
-// token bucket: у "відрі" до 10 жетонів, щосекунди додається 5.
-// Кожне повідомлення забирає жетон. Жетонів немає -> закриваємо.
-const BUCKET_SIZE = 10;
-const REFILL_PER_SEC = 5;
+// token bucket: у "відрі" N жетонів, щосекунди додається M. Кожне повідомлення забирає жетон.
+// Для input окреме відро: клієнт законно шле їх 30 на секунду.
+const CHAT_BUCKET = { size: 10, refill: 5 };
+const INPUT_BUCKET = { size: 45, refill: 35 };
 
 // повільний клієнт: якщо в черзі на відправку стільки байтів,
-// неважливе (чат) йому не шлемо, а якщо ще більше - закриваємо
+// неважливе (чат, знімки) йому не шлемо, а якщо ще більше - закриваємо
 const SLOW_BYTES = 64 * 1024;
 const TOO_SLOW_BYTES = 1024 * 1024;
 
 let nextPlayerId = 1;
 
+function makeBucket({ size }) {
+  return { tokens: size, last: Date.now() };
+}
+
+function takeToken(bucket, { size, refill }) {
+  const now = Date.now();
+  bucket.tokens = Math.min(size, bucket.tokens + ((now - bucket.last) / 1000) * refill);
+  bucket.last = now;
+  if (bucket.tokens < 1) return false;
+  bucket.tokens -= 1;
+  return true;
+}
+
 export function createWsServer(server, rooms) {
   const wss = new WebSocketServer({ server, path: '/ws', maxPayload: MAX_MESSAGE_BYTES });
   const stats = { droppedForSlowClients: 0 };
 
-  // ---------- відправка з урахуванням повільних клієнтів ----------
+  // ---------- відправка з урахуванням повільних клієнтів і штучної мережі ----------
 
-  function send(socket, data, { important = true } = {}) {
-    if (socket.readyState !== socket.OPEN) return;
-    const queued = socket.bufferedAmount;
-    if (queued > TOO_SLOW_BYTES) {
-      socket.close(CLOSE.SLOW_CLIENT, 'too slow');
-      return;
-    }
-    if (queued > SLOW_BYTES && !important) {
-      stats.droppedForSlowClients++;
-      return;
-    }
-    socket.send(data);
+  function send(socket, data, { important = true, droppable = false } = {}) {
+    const state = socket.state;
+    throughNetsim(
+      state.net,
+      () => {
+        if (socket.readyState !== socket.OPEN) return;
+        const queued = socket.bufferedAmount;
+        if (queued > TOO_SLOW_BYTES) {
+          socket.close(CLOSE.SLOW_CLIENT, 'too slow');
+          return;
+        }
+        if (queued > SLOW_BYTES && !important) {
+          stats.droppedForSlowClients++;
+          return;
+        }
+        state.bytesOut +=
+          typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength;
+        socket.send(data);
+      },
+      { droppable },
+    );
   }
 
   function broadcast(room, data, options) {
@@ -46,9 +71,11 @@ export function createWsServer(server, rooms) {
   function closeWithError(socket, code, reason) {
     if (socket.state.closing) return;
     socket.state.closing = true;
-    console.warn(`[ws] закриваю ${socket.state?.id ?? '?'}: ${code} ${reason}`);
-    send(socket, make('error', { code, message: reason }));
-    socket.close(code, reason);
+    console.warn(`[ws] закриваю ${socket.state.id}: ${code} ${reason}`);
+    if (socket.readyState === socket.OPEN) {
+      socket.send(make('error', { code, message: reason }));
+      socket.close(code, reason);
+    }
   }
 
   // ---------- кімнати: розсилка roster і чату за їхніми подіями ----------
@@ -76,8 +103,11 @@ export function createWsServer(server, rooms) {
       room: null,
       missedPongs: 0,
       closing: false,
-      tokens: BUCKET_SIZE,
-      lastRefill: Date.now(),
+      chatBucket: makeBucket(CHAT_BUCKET),
+      inputBucket: makeBucket(INPUT_BUCKET),
+      net: NO_NETSIM,
+      bytesIn: 0,
+      bytesOut: 0,
     };
     socket.state = state;
     console.log(`[ws] підключився ${state.id} (${req.socket.remoteAddress})`);
@@ -97,20 +127,43 @@ export function createWsServer(server, rooms) {
 
     socket.on('message', (data, isBinary) => {
       if (state.closing) return; // вже закриваємо - решту ігноруємо
-      if (!takeToken(state)) {
-        closeWithError(socket, CLOSE.RATE_LIMIT, 'too many messages');
-        return;
-      }
+      state.bytesIn += data.length;
+
+      // бінарне повідомлення може бути лише input
       if (isBinary) {
-        closeWithError(socket, CLOSE.BAD_MESSAGE, 'binary not supported');
+        if (!takeToken(state.inputBucket, INPUT_BUCKET)) {
+          closeWithError(socket, CLOSE.RATE_LIMIT, 'too many inputs');
+          return;
+        }
+        let input;
+        try {
+          input = decodeInput(data);
+        } catch (err) {
+          closeWithError(socket, CLOSE.BAD_MESSAGE, `bad binary input: ${err.message}`);
+          return;
+        }
+        if (!isValidInput(input)) {
+          closeWithError(socket, CLOSE.BAD_MESSAGE, 'bad input values');
+          return;
+        }
+        receiveInput(state, input);
         return;
       }
+
       const result = validate(data.toString('utf8'));
       if (!result.ok) {
         closeWithError(socket, result.code, result.reason);
         return;
       }
-      handle(socket, state, result.msg, joinTimer);
+      const msg = result.msg;
+      const bucket = msg.type === 'input' ? INPUT_BUCKET : CHAT_BUCKET;
+      if (
+        !takeToken(msg.type === 'input' ? state.inputBucket : state.chatBucket, bucket)
+      ) {
+        closeWithError(socket, CLOSE.RATE_LIMIT, 'too many messages');
+        return;
+      }
+      handle(socket, state, msg, joinTimer);
     });
 
     socket.on('close', (code) => {
@@ -120,14 +173,13 @@ export function createWsServer(server, rooms) {
     });
   });
 
-  function takeToken(state) {
-    const now = Date.now();
-    const passed = (now - state.lastRefill) / 1000;
-    state.tokens = Math.min(BUCKET_SIZE, state.tokens + passed * REFILL_PER_SEC);
-    state.lastRefill = now;
-    if (state.tokens < 1) return false;
-    state.tokens -= 1;
-    return true;
+  // input теж проходить через штучну мережу (і може "загубитись")
+  function receiveInput(state, input) {
+    if (!state.room) return;
+    const room = state.room;
+    throughNetsim(state.net, () => room.match?.pushInput(state.id, input), {
+      droppable: true,
+    });
   }
 
   function handle(socket, state, msg, joinTimer) {
@@ -146,10 +198,39 @@ export function createWsServer(server, rooms) {
         return;
       }
       clearTimeout(joinTimer);
-      state.player = { id: state.id, name: msg.name.trim(), socket };
+      if (msg.net) state.net = msg.net;
+      state.player = {
+        id: state.id,
+        name: msg.name.trim(),
+        socket,
+        codec: msg.codec || 'binary',
+        sendSnapshot: (data) => send(socket, data, { important: false, droppable: true }),
+        sendText: (text) => send(socket, text),
+      };
       state.room = room;
-      send(socket, make('joined', { room: room.toJSON(), you: state.id }));
-      room.add(state.player); // 'join' -> roster усім
+      room.add(state.player); // створює корабель у матчі і шле roster усім
+      send(
+        socket,
+        make('joined', {
+          room: room.toJSON(),
+          you: state.id,
+          shipId: state.player.ship.netId,
+          seed: room.match.seed,
+          tick: room.match.tick,
+        }),
+      );
+      return;
+    }
+
+    if (msg.type === 'ping') {
+      // відповідаємо через ту саму штучну мережу, тому RTT включає затримку
+      throughNetsim(state.net, () => send(socket, make('pong', { t: msg.t })));
+      return;
+    }
+
+    if (msg.type === 'netsim') {
+      state.net = { lag: msg.lag, jitter: msg.jitter, drop: msg.drop };
+      console.log(`[ws] ${state.id}: netsim`, state.net);
       return;
     }
 
@@ -159,7 +240,10 @@ export function createWsServer(server, rooms) {
       return;
     }
 
-    if (msg.type === 'chat') {
+    if (msg.type === 'input') {
+      const { seq, turn, thrust, fire, missile, flip } = msg;
+      receiveInput(state, { seq, turn, thrust, fire, missile, flip });
+    } else if (msg.type === 'chat') {
       state.room.chat(state.player, msg.text.trim());
     } else if (msg.type === 'leave') {
       leaveRoom(state);
@@ -197,5 +281,18 @@ export function createWsServer(server, rooms) {
     return new Promise((resolve) => wss.close(() => resolve()));
   }
 
-  return { wss, close, stats };
+  // для /api/stats: байти кожного клієнта
+  function clientStats() {
+    return [...wss.clients].map((s) => ({
+      id: s.state.id,
+      name: s.state.player?.name ?? null,
+      room: s.state.room?.id ?? null,
+      codec: s.state.player?.codec ?? null,
+      bytesIn: s.state.bytesIn,
+      bytesOut: s.state.bytesOut,
+      net: s.state.net,
+    }));
+  }
+
+  return { wss, close, stats, clientStats };
 }

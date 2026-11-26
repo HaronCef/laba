@@ -1,7 +1,10 @@
 // Обгортка над WebSocket:
-//  - повідомлення від сервера розсилає як події за їхнім type ('roster', 'chat', ...);
+//  - текстові повідомлення від сервера розсилає як події за їхнім type ('roster', 'chat', ...),
+//    бінарні (знімки) - подією 'binary' з ArrayBuffer;
 //  - send() до підключення складає повідомлення в чергу і відправляє після open;
-//  - якщо з'єднання обірвалось, підключається знову з дедалі довшою паузою.
+//    sendNow() шле лише якщо з'єднання є (input не має сенсу відправляти пізніше);
+//  - якщо з'єднання обірвалось, підключається знову з дедалі довшою паузою;
+//  - рахує байти туди й назад (для netgraph).
 // Події самої обгортки: 'open', 'status' (detail.status, detail.code)
 
 const VERSION = 0;
@@ -9,6 +12,8 @@ const MAX_QUEUE = 50;
 
 // з такими кодами сервер закрив нас за нашу помилку - повтор нічого не дасть
 const NO_RETRY_CODES = [1000, 4000, 4001, 4002, 4003, 4004, 4005];
+
+const encoder = new TextEncoder();
 
 export class Connection extends EventTarget {
   #ws = null;
@@ -21,6 +26,9 @@ export class Connection extends EventTarget {
     super();
     this.url = url;
     this.status = 'connecting';
+    this.binaryType = 'arraybuffer';
+    this.bytesIn = 0;
+    this.bytesOut = 0;
     this.#connect();
   }
 
@@ -32,6 +40,7 @@ export class Connection extends EventTarget {
   #connect() {
     this.#setStatus(this.#attempt === 0 ? 'connecting' : 'reconnecting');
     const ws = new WebSocket(this.url);
+    ws.binaryType = this.binaryType; // знімки приходять як ArrayBuffer
     this.#ws = ws;
 
     ws.onopen = () => {
@@ -39,11 +48,17 @@ export class Connection extends EventTarget {
       this.#setStatus('open');
       this.dispatchEvent(new CustomEvent('open'));
       // усе, що накопичилось, поки не було з'єднання
-      for (const data of this.#queue) ws.send(data);
+      for (const data of this.#queue) this.#rawSend(data);
       this.#queue = [];
     };
 
     ws.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        this.bytesIn += event.data.byteLength;
+        this.dispatchEvent(new CustomEvent('binary', { detail: event.data }));
+        return;
+      }
+      this.bytesIn += encoder.encode(event.data).length;
       let msg;
       try {
         msg = JSON.parse(event.data);
@@ -70,13 +85,29 @@ export class Connection extends EventTarget {
     };
   }
 
+  #rawSend(data) {
+    this.bytesOut +=
+      typeof data === 'string' ? encoder.encode(data).length : data.byteLength;
+    this.#ws.send(data);
+  }
+
+  get isOpen() {
+    return this.#ws !== null && this.#ws.readyState === WebSocket.OPEN;
+  }
+
+  // JSON-повідомлення; поки немає з'єднання - у чергу
   send(type, fields = {}) {
     const data = JSON.stringify({ v: VERSION, type, ...fields });
-    if (this.#ws && this.#ws.readyState === WebSocket.OPEN) {
-      this.#ws.send(data);
+    if (this.isOpen) {
+      this.#rawSend(data);
     } else if (this.#queue.length < MAX_QUEUE) {
       this.#queue.push(data);
     }
+  }
+
+  // готові дані (рядок або ArrayBuffer) - лише якщо з'єднання є зараз
+  sendNow(data) {
+    if (this.isOpen) this.#rawSend(data);
   }
 
   close() {

@@ -1,42 +1,7 @@
-import { normalizeAngle } from '../sim/vector.js';
-import { wrapValue } from '../sim/arena.js';
+import { mulberry32 } from 'shared/rng.js';
 
-// Різницю кутів спочатку приводимо до [-PI, PI), щоб корабель
-// повертався коротким шляхом, а не робив повне коло через -PI/PI.
-function lerpAngle(a, b, t) {
-  const diff = normalizeAngle(b - a);
-  return a + diff * t;
-}
-
-// Якщо між кроками сутність перелетіла через край, різниця координат буде
-// майже на всю ширину арени. Тоді беремо короткий шлях "через край".
-function lerpWrapped(a, b, t, max) {
-  let diff = b - a;
-  if (diff > max / 2) diff -= max;
-  if (diff < -max / 2) diff += max;
-  return wrapValue(a + diff * t, max);
-}
-
-// де малювати сутність між попереднім і поточним кроком
-function interpolate(entity, alpha, arena) {
-  return {
-    x: lerpWrapped(entity.prevPos.x, entity.pos.x, alpha, arena.width),
-    y: lerpWrapped(entity.prevPos.y, entity.pos.y, alpha, arena.height),
-    angle: lerpAngle(entity.prevAngle, entity.angle, alpha),
-  };
-}
-
-// Малює кадр зі спрайтшита: drawImage з прямокутником-джерелом (sx, sy, sw, sh).
-// Кадри йдуть в один рядок, кожен frameSize x frameSize, носом вправо.
-function drawSprite(ctx, sprites, frame, p, size) {
-  const index = sprites.frames.indexOf(frame);
-  const fs = sprites.frameSize;
-  ctx.save();
-  ctx.translate(p.x, p.y);
-  ctx.rotate(p.angle);
-  ctx.drawImage(sprites.image, index * fs, 0, fs, fs, -size / 2, -size / 2, size, size);
-  ctx.restore();
-}
+// Малювання. Світ тепер рахує сервер, тому тут на вхід ідуть не сутності,
+// а прості об'єкти з NetClient.renderList(): { kind, x, y, angle, ... } у координатах арени.
 
 // Зірки зберігаємо у відносних координатах (0..1), щоб при зміні розміру
 // вікна вони не збивались в один кут.
@@ -65,11 +30,35 @@ export function drawBackground(ctx, width, height, stars) {
   }
 }
 
-// Корабель малюємо в точці (0, 0) носом вправо, а translate/rotate ставлять його на місце
-function drawShip(ctx, ship, p) {
+// Арена однакова для всіх (1280x720), тому вписуємо її у вікно
+export function arenaView(width, height, arena) {
+  const scale = Math.min(width / arena.width, height / arena.height);
+  return {
+    scale,
+    x: (width - arena.width * scale) / 2,
+    y: (height - arena.height * scale) / 2,
+  };
+}
+
+// Кадр зі спрайтшита: drawImage з прямокутником-джерелом (sx, sy, sw, sh).
+// Кадри йдуть в один рядок, кожен frameSize x frameSize, носом вправо.
+function drawSprite(ctx, sprites, frame, e, size) {
+  const index = sprites.frames.indexOf(frame);
+  const fs = sprites.frameSize;
   ctx.save();
-  ctx.translate(p.x, p.y);
-  ctx.rotate(p.angle);
+  ctx.translate(e.x, e.y);
+  ctx.rotate(e.angle);
+  ctx.drawImage(sprites.image, index * fs, 0, fs, fs, -size / 2, -size / 2, size, size);
+  ctx.restore();
+}
+
+// ---------- запасні фігури, якщо спрайти не завантажились ----------
+
+// Корабель малюємо в точці (0, 0) носом вправо, а translate/rotate ставлять його на місце
+function drawShipShape(ctx, ship) {
+  ctx.save();
+  ctx.translate(ship.x, ship.y);
+  ctx.rotate(ship.angle);
 
   if (ship.thrust) {
     const flame = 14 + Math.random() * 8;
@@ -82,9 +71,8 @@ function drawShip(ctx, ship, p) {
     ctx.fill();
   }
 
-  // корпус
-  ctx.fillStyle = '#c9d6ff';
-  ctx.strokeStyle = '#5b6cff';
+  ctx.fillStyle = ship.mine ? '#c9d6ff' : '#ffd0c9';
+  ctx.strokeStyle = ship.mine ? '#5b6cff' : '#ff6b5b';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(18, 0);
@@ -94,61 +82,52 @@ function drawShip(ctx, ship, p) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-
-  // кабіна
-  ctx.fillStyle = '#5b6cff';
-  ctx.beginPath();
-  ctx.arc(3, 0, 3.5, 0, Math.PI * 2);
-  ctx.fill();
-
-  // щит
-  if (ship.effects.shield > 0) {
-    ctx.strokeStyle = 'rgba(120, 220, 255, 0.8)';
-    ctx.beginPath();
-    ctx.arc(0, 0, ship.radius + 8, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
   ctx.restore();
 }
 
-function drawBullet(ctx, bullet, p) {
-  ctx.fillStyle = bullet.homing ? '#ff7b3a' : '#fff6a0';
-  ctx.beginPath();
-  ctx.arc(p.x, p.y, bullet.radius, 0, Math.PI * 2);
-  ctx.fill();
+// форма астероїда з його id: у всіх гравців однакова, і по мережі її передавати не треба
+function asteroidShape(id) {
+  const rnd = mulberry32(id * 7919);
+  const shape = [];
+  for (let i = 0; i < 10; i++) shape.push(0.75 + rnd() * 0.35);
+  return shape;
 }
 
-function drawAsteroid(ctx, asteroid, p) {
+function drawAsteroidShape(ctx, a) {
+  const radius = a.big ? 30 : 15;
+  const shape = asteroidShape(a.id);
   ctx.save();
-  ctx.translate(p.x, p.y);
-  ctx.rotate(p.angle);
+  ctx.translate(a.x, a.y);
+  ctx.rotate(a.angle);
   ctx.fillStyle = '#2a2d3a';
-  ctx.strokeStyle = asteroid.homing ? '#ff5a5a' : '#9aa0b5'; // мисливці червоні
+  ctx.strokeStyle = a.hunter ? '#ff5a5a' : '#9aa0b5'; // мисливці червоні
   ctx.lineWidth = 2;
   ctx.beginPath();
-  const n = asteroid.shape.length;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const r = asteroid.radius * asteroid.shape[i];
-    if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-    else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-  }
+  shape.forEach((m, i) => {
+    const ang = (i / shape.length) * Math.PI * 2;
+    if (i === 0) ctx.moveTo(Math.cos(ang) * radius * m, Math.sin(ang) * radius * m);
+    else ctx.lineTo(Math.cos(ang) * radius * m, Math.sin(ang) * radius * m);
+  });
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
   ctx.restore();
 }
 
-function drawPickup(ctx, pickup, p) {
-  const isShield = pickup.pickup.effect === 'shield';
+function drawBulletShape(ctx, b) {
+  ctx.fillStyle = b.missile ? '#ff7b3a' : '#fff6a0';
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, b.missile ? 5 : 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawPickupShape(ctx, p) {
+  const isShield = p.effect === 'shield';
   ctx.save();
   ctx.strokeStyle = isShield ? '#78dcff' : '#c78bff';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(p.x, p.y, pickup.radius, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
   ctx.stroke();
   ctx.fillStyle = ctx.strokeStyle;
   ctx.font = 'bold 13px monospace';
@@ -158,77 +137,81 @@ function drawPickup(ctx, pickup, p) {
   ctx.restore();
 }
 
-function drawExplosion(ctx, explosion) {
-  ctx.save();
-  ctx.globalAlpha = Math.max(0, explosion.life);
-  ctx.fillStyle = explosion.color;
-  for (const part of explosion.particles) {
-    ctx.fillRect(part.pos.x - 1.5, part.pos.y - 1.5, 3, 3);
-  }
-  ctx.restore();
-}
-
-function drawShield(ctx, ship, p) {
+function drawShield(ctx, ship) {
   ctx.strokeStyle = 'rgba(120, 220, 255, 0.8)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(p.x, p.y, ship.radius + 8, 0, Math.PI * 2);
+  ctx.arc(ship.x, ship.y, 22, 0, Math.PI * 2);
   ctx.stroke();
 }
 
-// зі спрайтами
-function drawWithSprites(ctx, sprites, entity, p) {
-  switch (entity.kind) {
-    case 'ship':
-      if (entity.isDead) return;
-      drawSprite(ctx, sprites, entity.thrust ? 'ship_thrust' : 'ship', p, 44);
-      if (entity.effects.shield > 0) drawShield(ctx, entity, p);
-      break;
-    case 'bullet':
-      if (entity.homing) drawSprite(ctx, sprites, 'missile', p, 26);
-      else drawSprite(ctx, sprites, 'bullet', p, 10);
-      break;
-    case 'asteroid': {
-      const big = entity.size === 2;
-      const frame = (entity.homing ? 'hunter_' : 'rock_') + (big ? 'big' : 'small');
-      drawSprite(ctx, sprites, frame, p, entity.radius * 2.2);
-      break;
+function drawName(ctx, ship, name) {
+  if (!name) return;
+  ctx.save();
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = ship.mine ? '#9dff9d' : '#ffb0a8';
+  ctx.fillText(name, ship.x, ship.y + 32);
+  ctx.restore();
+}
+
+// list - з NetClient.renderList(), names - Map shipId -> ім'я
+export function drawWorld(ctx, list, sprites, names) {
+  for (const e of list) {
+    if (e.kind === 'ship') {
+      if (e.dead) continue;
+      if (sprites) drawSprite(ctx, sprites, e.thrust ? 'ship_thrust' : 'ship', e, 44);
+      else drawShipShape(ctx, e);
+      if (e.shield) drawShield(ctx, e);
+      drawName(ctx, e, names.get(e.id));
+    } else if (e.kind === 'bullet') {
+      if (sprites)
+        drawSprite(
+          ctx,
+          sprites,
+          e.missile ? 'missile' : 'bullet',
+          e,
+          e.missile ? 26 : 10,
+        );
+      else drawBulletShape(ctx, e);
+    } else if (e.kind === 'asteroid') {
+      const frame = (e.hunter ? 'hunter_' : 'rock_') + (e.big ? 'big' : 'small');
+      if (sprites) drawSprite(ctx, sprites, frame, e, e.big ? 66 : 33);
+      else drawAsteroidShape(ctx, e);
+    } else if (e.kind === 'pickup') {
+      if (sprites) drawSprite(ctx, sprites, `pickup_${e.effect}`, { ...e, angle: 0 }, 30);
+      else drawPickupShape(ctx, e);
     }
-    case 'pickup':
-      drawSprite(ctx, sprites, `pickup_${entity.pickup.effect}`, { ...p, angle: 0 }, 30);
-      break;
-    case 'explosion':
-      drawExplosion(ctx, entity);
-      break;
   }
 }
 
-// sprites = null, якщо спрайтшит не завантажився - тоді малюємо фігурами, як у лабі 2
-export function drawWorld(ctx, world, alpha, sprites) {
-  for (const entity of world) {
-    const p = interpolate(entity, alpha, world.arena);
-    if (sprites) {
-      drawWithSprites(ctx, sprites, entity, p);
-      continue;
-    }
-    switch (entity.kind) {
-      case 'ship':
-        if (!entity.isDead) drawShip(ctx, entity, p);
-        break;
-      case 'bullet':
-        drawBullet(ctx, entity, p);
-        break;
-      case 'asteroid':
-        drawAsteroid(ctx, entity, p);
-        break;
-      case 'pickup':
-        drawPickup(ctx, entity, p);
-        break;
-      case 'explosion':
-        drawExplosion(ctx, entity);
-        break;
-    }
+// ---------- вибухи (лише на клієнті, по подіях сервера) ----------
+
+export function createExplosion(x, y, count, color = '#ffb347') {
+  const particles = [];
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 40 + Math.random() * 160;
+    particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
   }
+  return { particles, color, life: 1 };
+}
+
+// оновлює і малює; повертає лише ті, що ще не догоріли
+export function drawExplosions(ctx, explosions, dt) {
+  for (const ex of explosions) {
+    ex.life -= dt / 0.8;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, ex.life);
+    ctx.fillStyle = ex.color;
+    for (const p of ex.particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    }
+    ctx.restore();
+  }
+  return explosions.filter((ex) => ex.life > 0);
 }
 
 export function drawHud(ctx, lines) {

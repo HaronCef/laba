@@ -23,6 +23,7 @@ const browser = {
   CustomEvent: 'readonly',
   AudioContext: 'readonly',
   WebSocket: 'readonly',
+  TextEncoder: 'readonly',
 };
 
 const node = {
@@ -55,8 +56,10 @@ export default [
       'server/**/*.js',
       'client/scripts/**/*.js',
       'client/dev/**/*.js',
+      'shared/test/**/*.js',
       '**/*.config.js',
     ],
     languageOptions: { globals: node },
   },
+  // shared/src свідомо без глобальних змінних браузера чи Node: симуляція має працювати всюди
 ];

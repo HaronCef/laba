@@ -1,10 +1,8 @@
 import { Vector2 } from './vector.js';
 
-// Арена: розміри і "загортання" країв (вилетів справа - з'явився зліва)
-
-export function createArena(width, height) {
-  return { width, height };
-}
+// Арена тепер однакова для всіх гравців (раніше дорівнювала розміру вікна).
+// Клієнт масштабує її під своє вікно.
+export const ARENA = { width: 1280, height: 720 };
 
 // повертає value в межах [0, max), працює і для від'ємних чисел
 export function wrapValue(value, max) {

@@ -1,12 +1,13 @@
 import { setupCanvas } from './render/canvas.js';
 import { drawLoading } from './render/draw.js';
-import { createArena } from './sim/arena.js';
 import { loadJson, loadAll } from './assets/loader.js';
 import { createAudio } from './audio.js';
 import { Lobby } from './lobby/lobby.js';
 import { createLobbyView } from './lobby/lobbyView.js';
 import { createChatView } from './lobby/chatView.js';
 import { Connection, serverUrl } from './net/connection.js';
+import { NetClient } from './net/netclient.js';
+import { findPreset } from './net/netgraph.js';
 import { startGame } from './game.js';
 
 // Порядок: екран завантаження -> лобі -> гра.
@@ -20,6 +21,9 @@ import { startGame } from './game.js';
 //   ?fail=json    - битий arena.json
 //   ?fail=flaky   - arena.json двічі відповідає 503, потім нормально (видно ретраї)
 //   ?fail=lobby   - список кімнат відповідає довше за таймаут лобі
+// Лаба 5:
+//   ?codec=json                 - input і знімки текстом JSON замість бінарного формату
+//   ?lag=100&jitter=30&drop=2   - штучна погана мережа (мс туди-назад, ± мс, % втрат); у грі - клавіша N
 
 const params = new URLSearchParams(location.search);
 const sequential = params.get('seq') === '1';
@@ -27,11 +31,7 @@ const delay = Number(params.get('delay') || 0);
 
 const canvas = document.getElementById('game');
 const ui = document.getElementById('ui');
-const arena = createArena(800, 600);
-const { ctx, size } = setupCanvas(canvas, (w, h) => {
-  arena.width = w;
-  arena.height = h;
-});
+const { ctx, size } = setupCanvas(canvas);
 
 const audio = createAudio();
 // AudioContext можна запустити лише після дії гравця
@@ -171,18 +171,36 @@ async function main() {
 
   audio.unlock(); // клік по Join - це дія гравця, звук можна вмикати
 
+  const codec = params.get('codec') === 'json' ? 'json' : 'binary';
+  const netsim = {
+    lag: Number(params.get('lag')) || 0,
+    jitter: Number(params.get('jitter')) || 0,
+    drop: (Number(params.get('drop')) || 0) / 100,
+  };
+
   // WebSocket: при кожному (пере)підключенні заново кажемо серверу, в яку кімнату йдемо
   const connection = new Connection(serverUrl());
+  const net = new NetClient(connection, { codec });
   connection.addEventListener('open', () => {
-    connection.send('join', { room: room.id, name });
+    connection.send('join', { room: room.id, name, codec, net: netsim });
   });
   const chat = createChatView(connection, document.getElementById('chat'));
   connection.addEventListener('joined', () =>
     chat.addLine(`ви в кімнаті "${room.name}"`, 'ok'),
   );
 
-  // координати кораблів поки не передаються (це лаба 5) - гра локальна
-  startGame({ ctx, size, arena, assets, room, pilotName: name, audio });
+  // світ рахує сервер: клієнт шле input і малює знімки (лаба 5)
+  startGame({
+    ctx,
+    size,
+    assets,
+    room,
+    pilotName: name,
+    audio,
+    net,
+    connection,
+    netPreset: findPreset(netsim),
+  });
 }
 
 main();

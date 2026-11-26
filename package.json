@@ -1,11 +1,12 @@
 {
   "name": "space-duel",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "workspaces": [
     "client",
-    "server"
+    "server",
+    "shared"
   ],
   "engines": {
     "node": ">=22.12"
@@ -15,7 +16,7 @@
     "dev:server": "npm run dev --workspace=server",
     "build": "npm run build --workspace=client",
     "start": "npm run start --workspace=server",
-    "test": "npm test --workspace=server",
+    "test": "npm test --workspace=shared && npm test --workspace=server",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

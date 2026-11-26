@@ -135,6 +135,17 @@ async function route(req, res) {
     });
     return;
   }
+  if (req.method === 'GET' && p === '/api/stats') {
+    // тривалість кроку і розкид інтервалів між кроками кожного матчу + байти клієнтів
+    sendJson(res, 200, {
+      matches: rooms
+        .all()
+        .filter((r) => r.match)
+        .map((r) => r.match.statsJson()),
+      clients: ws.clientStats(),
+    });
+    return;
+  }
   if (p === '/api/rooms') {
     if (req.method === 'GET') return sendJson(res, 200, rooms.list());
     if (req.method === 'POST') return createRoom(req, res);

@@ -2,3 +2,5 @@ node_modules
 dist
 package-lock.json
 server/logs
+# навмисно зламаний JSON для галереї збоїв (лаба 3)
+client/public/assets/broken.json
