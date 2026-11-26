@@ -19,4 +19,13 @@ describe('config', () => {
     expect(loadConfig({ PORT: '70000' }).ok).toBe(false);
     expect(loadConfig({ MAX_PLAYERS: '1' }).ok).toBe(false);
   });
+
+  it('лаба 8: ALLOWED_ORIGINS через кому, TRUST_PROXY, LOG_LEVEL', () => {
+    const c = loadConfig({ ALLOWED_ORIGINS: 'https://a.com, http://localhost:5173 ,', TRUST_PROXY: '1' });
+    expect(c.ok && c.value.allowedOrigins).toEqual(['https://a.com', 'http://localhost:5173']);
+    expect(c.ok && c.value.trustProxy).toBe(true);
+    expect(c.ok && c.value.maxConnPerIp).toBe(10);
+    expect(loadConfig({ LOG_LEVEL: 'loud' }).ok).toBe(false);
+    expect(loadConfig({ MAX_CONN_PER_IP: '0' }).ok).toBe(false);
+  });
 });

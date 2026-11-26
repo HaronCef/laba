@@ -6,6 +6,7 @@ import type { Ship } from 'shared/sim/ship.ts';
 import type { WorldConfig } from 'shared/sim/world.ts';
 import { asPlayerId, type PlayerId } from 'shared/types.ts';
 import type { CodecName } from 'shared/codec/index.ts';
+import { log } from './logger.ts';
 import type { RoomInfo } from 'shared/protocol.ts';
 
 // Гравець з погляду кімнати: як з ним говорити, без подробиць WebSocket
@@ -180,7 +181,7 @@ export class RoomManager extends EventEmitter<ManagerEvents> {
       if (this.#logging.has(room.id)) return;
       this.#logging.add(room.id);
       const done: Promise<unknown> = startMatchLog(room, this.logDir)
-        .catch((err: unknown) => console.error(`[log] ${room.id}:`, err))
+        .catch((err: unknown) => log.error({ roomId: room.id, err }, 'не вдалося записати лог матчу'))
         .finally(() => this.#pendingLogs.delete(done));
       this.#pendingLogs.add(done);
     });

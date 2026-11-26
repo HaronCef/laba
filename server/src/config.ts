@@ -11,6 +11,13 @@ const EnvSchema = z.object({
   STATIC_DIR: z.string().min(1).default('../client/dist'),
   MAX_ROOMS: z.coerce.number().int().min(1).max(1000).default(20),
   MAX_PLAYERS: z.coerce.number().int().min(2).max(1024).default(8), // сотні - лише для load test
+  // лаба 8: хостинг
+  ALLOWED_ORIGINS: z.string().default(''), // через кому: https://my-game.onrender.com,http://localhost:5173
+  MAX_CONN_PER_IP: z.coerce.number().int().min(1).max(10000).default(10),
+  TRUST_PROXY: z.enum(['0', '1']).default('0'), // 1 - брати IP з X-Forwarded-For (за проксі хостингу)
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  APP_VERSION: z.string().default('dev'), // тег збірки (v1.0.0), ставить Docker/CI
+  GIT_SHA: z.string().default('dev'), // коміт збірки
 });
 
 export interface ServerConfig {
@@ -20,6 +27,12 @@ export interface ServerConfig {
   readonly staticDir: string; // абсолютний шлях
   readonly maxRooms: number;
   readonly maxPlayersPerRoom: number;
+  readonly allowedOrigins: readonly string[];
+  readonly maxConnPerIp: number;
+  readonly trustProxy: boolean;
+  readonly logLevel: string;
+  readonly version: string;
+  readonly gitSha: string;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Result<ServerConfig> {
@@ -41,5 +54,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     staticDir: path.resolve(serverDir, e.STATIC_DIR),
     maxRooms: e.MAX_ROOMS,
     maxPlayersPerRoom: e.MAX_PLAYERS,
+    allowedOrigins: e.ALLOWED_ORIGINS.split(',')
+      .map((o) => o.trim())
+      .filter((o) => o !== ''),
+    maxConnPerIp: e.MAX_CONN_PER_IP,
+    trustProxy: e.TRUST_PROXY === '1',
+    logLevel: e.LOG_LEVEL,
+    version: e.APP_VERSION,
+    gitSha: e.GIT_SHA,
   });
 }

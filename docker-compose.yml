@@ -1,0 +1,15 @@
+# Локальний запуск "як на хостингу": docker compose up --build  ->  http://localhost:3000
+services:
+  game:
+    build:
+      context: .
+      args:
+        APP_VERSION: local
+    ports:
+      - '3000:3000'
+    environment:
+      LOG_LEVEL: info
+      ALLOWED_ORIGINS: http://localhost:3000
+      MAX_CONN_PER_IP: 10
+    stop_grace_period: 10s
+    restart: unless-stopped

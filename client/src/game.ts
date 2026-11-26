@@ -40,10 +40,11 @@ export interface GameOptions {
   net: NetClient;
   connection: Connection;
   netPreset: number;
+  version: string;
 }
 
 // Сама гра: світ рахує сервер, тут лише input, прогноз свого корабля і малювання.
-export function startGame({ ctx, size, assets, room, pilotName, audio, net, connection, netPreset }: GameOptions): void {
+export function startGame({ ctx, size, assets, room, pilotName, audio, net, connection, netPreset, version }: GameOptions): void {
   const input = createInput(window);
   const stars = createStars(assets.arena.stars);
   const hud = createHud(net);
@@ -125,7 +126,7 @@ export function startGame({ ctx, size, assets, room, pilotName, audio, net, conn
     const key = names.size + s.stepsPerSec * 1e3 + s.framesPerSec * 1e6 + (me ? (me.dead ? 1e9 : me.hp * 1e10) : 0);
     if (key !== hudKey) {
       hudKey = key;
-      hudLines[0] = `${pilotName} @ ${room.name}   гравців: ${names.size}`;
+      hudLines[0] = `${pilotName} @ ${room.name}   гравців: ${names.size}   ${version}`;
       hudLines[1] = `steps/s: ${s.stepsPerSec}   frames/s: ${s.framesPerSec}`;
       hudLines[2] = !me ? 'чекаю перший знімок...' : me.dead ? 'корабель знищено, респаун...' : `hp: ${me.hp}`;
     }

@@ -9,15 +9,29 @@ import { createWsServer } from './ws.ts';
 import { serveStatic } from './static.ts';
 import { listReplays, readEvents, replayPath } from './log/replay.ts';
 import type { LogEvent } from './log/logEvent.ts';
+import { log } from './logger.ts';
+import { summary } from './match.ts';
+import { elu, perSecond, rejections } from './metrics.ts';
 
 const MAX_BODY_BYTES = 1024;
 
 const loaded = loadConfig();
 if (!loaded.ok) {
-  console.error(`[config] ${loaded.error}`);
+  log.fatal(`[config] ${loaded.error}`);
   process.exit(1);
 }
 const config = loaded.value;
+
+// Необроблена помилка = стан процесу невідомий. Не глушимо, а пишемо в лог і падаємо:
+// хостинг перезапустить контейнер, а в лозі буде причина.
+process.on('uncaughtException', (err) => {
+  log.fatal({ err }, 'uncaughtException, виходжу');
+  process.exit(1);
+});
+process.on('unhandledRejection', (err) => {
+  log.fatal({ err }, 'unhandledRejection, виходжу');
+  process.exit(1);
+});
 
 const rooms = new RoomManager(config);
 
@@ -159,15 +173,18 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const p = url.pathname;
 
+  // /health - процес живий (liveness). /ready - можна пускати гравців (readiness).
   if (req.method === 'GET' && p === '/health') {
-    const mem = process.memoryUsage();
-    sendJson(res, 200, {
-      ok: true,
-      uptime: Math.round(process.uptime()),
-      rooms: rooms.size,
-      connections: ws.wss.clients.size,
-      rssMb: Math.round((mem.rss / 1024 / 1024) * 10) / 10,
-    });
+    sendJson(res, 200, { ok: true, version: config.version, commit: config.gitSha, uptime: Math.round(process.uptime()) });
+    return;
+  }
+  if (req.method === 'GET' && p === '/ready') {
+    const ready = !shuttingDown && ws.wss.clients.size < config.maxRooms * config.maxPlayersPerRoom;
+    sendJson(res, ready ? 200 : 503, { ready });
+    return;
+  }
+  if (req.method === 'GET' && p === '/metrics') {
+    sendJson(res, 200, metrics());
     return;
   }
   if (req.method === 'GET' && p === '/api/stats') {
@@ -219,7 +236,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     }
     return streamReplay(res, replay[1]);
   }
-  if (req.method === 'GET' && p === '/api/slow') {
+  if (req.method === 'GET' && p === '/api/slow' && process.env.NODE_ENV !== 'production') {
     const ms = Math.min(Number(url.searchParams.get('ms')) || 300, 2000);
     busyWait(ms);
     sendJson(res, 200, { blockedMs: ms });
@@ -245,21 +262,46 @@ const server = http.createServer((req, res) => {
   route(req, res).catch((err: unknown) => {
     // помилка в одному запиті не повинна звалити весь сервер
     if (err instanceof Error && 'code' in err && err.code === 'ERR_STREAM_PREMATURE_CLOSE') return; // клієнт перервав
-    console.error('[http]', req.method, req.url, err);
+    log.error({ method: req.method, url: req.url, err }, 'помилка запиту');
     if (!res.headersSent) sendJson(res, 500, { error: 'internal error' });
     else res.destroy();
   });
 });
 
-const ws = createWsServer(server, rooms);
+const ws = createWsServer(server, rooms, config);
+
+// /metrics: усе, що треба бачити на хостингу, одним JSON
+function metrics(): Record<string, unknown> {
+  const mem = process.memoryUsage();
+  const matches = rooms.all().flatMap((r) => (r.match ? [r.match] : []));
+  // найгірший p99 кроку серед кімнат за останні 60 с
+  const tickP99 = Math.max(0, ...matches.map((m) => summary(m.stats.tickMs)?.p99 ?? 0));
+  return {
+    version: config.version,
+    uptimeS: Math.round(process.uptime()),
+    players: matches.reduce((sum, m) => sum + m.players.size, 0),
+    bots: matches.reduce((sum, m) => sum + m.bots.length, 0),
+    rooms: rooms.size,
+    activeMatches: matches.length,
+    connections: ws.wss.clients.size,
+    messagesInPerSec: perSecond.messagesIn,
+    bytesInPerSec: perSecond.bytesIn,
+    bytesOutPerSec: perSecond.bytesOut,
+    tickP99Ms: tickP99,
+    eventLoopUtilization: Math.round(elu * 1000) / 1000,
+    rssMb: Math.round((mem.rss / 1024 / 1024) * 10) / 10,
+    heapMb: Math.round((mem.heapUsed / 1024 / 1024) * 10) / 10,
+    rejections,
+  };
+}
 
 // Без цього обробника зайнятий порт (EADDRINUSE) валив процес з "Unhandled 'error' event"
 // (лог у README, лаба 4). Тепер - зрозуміле повідомлення і вихід з кодом 1.
 function onServerError(err: unknown): void {
   if (err instanceof Error && 'code' in err && err.code === 'EADDRINUSE') {
-    console.error(`[http] порт ${config.port} уже зайнятий. Закрий інший сервер або зміни PORT у .env`);
+    log.fatal(`порт ${config.port} уже зайнятий. Закрий інший сервер або зміни PORT у .env`);
   } else {
-    console.error('[http] помилка сервера:', err);
+    log.fatal({ err }, 'помилка сервера');
   }
   process.exit(1);
 }
@@ -267,32 +309,32 @@ server.on('error', onServerError);
 ws.wss.on('error', onServerError); // ws пересилає помилки http-сервера ще й на себе
 
 server.listen(config.port, config.host, () => {
-  console.log(`[http] слухаю http://${config.host}:${config.port}`);
-  console.log(`[http] клієнт з ${config.staticDir}, логи в ${config.logDir}`);
+  log.info({ version: config.version, commit: config.gitSha }, `слухаю http://${config.host}:${config.port}`);
 });
 
 // ---------- акуратне вимкнення ----------
 
 let shuttingDown = false;
 
+// SIGTERM шле docker stop і хостинг перед перезапуском. Маємо ~10 с, потім буде SIGKILL.
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) return;
-  shuttingDown = true;
-  console.log(`[http] отримав ${signal}, вимикаюсь...`);
+  shuttingDown = true; // /ready тепер 503
+  const started = Date.now();
+  log.info({ signal }, 'вимикаюсь');
 
-  // якщо щось зависло - через 5 с виходимо примусово
+  // якщо щось зависло - через 8 с виходимо самі, не чекаючи SIGKILL
   setTimeout(() => {
-    console.error('[http] не встиг за 5 с, виходжу примусово');
+    log.error('не встиг за 8 с, виходжу примусово');
     process.exit(1);
-  }, 5000).unref();
+  }, 8000).unref();
 
   server.close(); // нові з'єднання більше не приймаємо
-  await ws.close(); // усім сокетам код 1001
-  server.closeIdleConnections();
+  await ws.close(); // усім "shutdown" і код 1001
+  server.closeAllConnections();
   await rooms.closeAll(); // дописати логи матчів
-  console.log('[http] логи дописані, бувай');
-  process.exitCode = 0;
-  setTimeout(() => server.closeAllConnections(), 100).unref();
+  log.info({ ms: Date.now() - started }, 'логи дописані, бувай');
+  process.exit(0);
 }
 
 process.on('SIGINT', (signal) => void shutdown(signal));

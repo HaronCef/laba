@@ -6,6 +6,9 @@ import { asPlayerId, assertNever, type PlayerId } from 'shared/types.ts';
 import { NO_NETSIM, throughNetsim } from './netsim.ts';
 import type { PlayerConn, Room, RoomManager } from './rooms.ts';
 import { TokenBucket } from './tokenBucket.ts';
+import { log } from './logger.ts';
+import { counters, reasonOf, reject } from './metrics.ts';
+import { clientIp, originAllowed } from './origin.ts';
 import { startHeartbeat } from './heartbeat.ts';
 
 const MAX_MESSAGE_BYTES = 2048; // maxPayload для ws
@@ -52,8 +55,37 @@ function toBuffer(data: RawData): Buffer {
   return Buffer.from(data);
 }
 
-export function createWsServer(server: Server, rooms: RoomManager) {
-  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: MAX_MESSAGE_BYTES });
+export interface WsOptions {
+  readonly allowedOrigins: readonly string[];
+  readonly maxConnPerIp: number;
+  readonly trustProxy: boolean;
+}
+
+export function createWsServer(server: Server, rooms: RoomManager, options: WsOptions) {
+  const perIp = new Map<string, number>(); // скільки з'єднань з кожної IP
+
+  // перевірка ще до того, як з'єднання стане WebSocket: Origin і ліміт на IP
+  const wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    maxPayload: MAX_MESSAGE_BYTES,
+    verifyClient: (info, done) => {
+      if (!originAllowed(info.origin || undefined, info.req.headers.host, options.allowedOrigins)) {
+        reject('origin');
+        log.warn({ origin: info.origin }, 'чужий Origin, не пускаю');
+        done(false, 403, 'origin not allowed');
+        return;
+      }
+      const ip = clientIp(info.req, options.trustProxy);
+      if ((perIp.get(ip) ?? 0) >= options.maxConnPerIp) {
+        reject('ip-limit');
+        log.warn('забагато з\'єднань з однієї IP');
+        done(false, 429, 'too many connections');
+        return;
+      }
+      done(true);
+    },
+  });
   const states = new Map<WebSocket, ConnState>();
   const stats = { droppedForSlowClients: 0 };
 
@@ -67,6 +99,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
         if (socket.readyState !== WebSocket.OPEN) return;
         const queued = socket.bufferedAmount;
         if (queued > TOO_SLOW_BYTES) {
+          reject('slow-client');
           socket.close(CLOSE.SLOW_CLIENT, 'too slow');
           return;
         }
@@ -74,7 +107,9 @@ export function createWsServer(server: Server, rooms: RoomManager) {
           stats.droppedForSlowClients++;
           return;
         }
-        state.bytesOut += typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength;
+        const size = typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength;
+        state.bytesOut += size;
+        counters.bytesOut += size;
         socket.send(data);
       },
       { droppable },
@@ -84,7 +119,8 @@ export function createWsServer(server: Server, rooms: RoomManager) {
   function closeWithError(state: ConnState, code: number, reason: string): void {
     if (state.closing) return;
     state.closing = true;
-    console.warn(`[ws] закриваю ${state.id}: ${code} ${reason}`);
+    reject(reasonOf(code));
+    log.warn({ playerId: state.id, roomId: state.room?.id, code, reason }, 'закриваю з\'єднання');
     if (state.socket.readyState === WebSocket.OPEN) {
       state.socket.send(serverMessage({ type: 'error', code, message: reason }));
       state.socket.close(code, reason.slice(0, 120)); // reason у кадрі close - до 123 байт
@@ -132,11 +168,13 @@ export function createWsServer(server: Server, rooms: RoomManager) {
     };
     states.set(socket, state);
     statesById.set(state.id, state);
-    console.log(`[ws] підключився ${state.id} (${req.socket.remoteAddress ?? '?'})`);
+    const ip = clientIp(req, options.trustProxy);
+    perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
+    log.info({ playerId: state.id }, 'підключився');
 
     // без обробника 'error' помилка сокета звалила б увесь процес
     socket.on('error', (err) => {
-      console.warn(`[ws] помилка сокета ${state.id}:`, err.message);
+      log.warn({ playerId: state.id, err: err.message }, 'помилка сокета');
     });
 
     const joinTimer = setTimeout(() => {
@@ -151,6 +189,8 @@ export function createWsServer(server: Server, rooms: RoomManager) {
       if (state.closing) return; // вже закриваємо - решту ігноруємо
       const bytes = toBuffer(data);
       state.bytesIn += bytes.length;
+      counters.messagesIn++;
+      counters.bytesIn += bytes.length;
 
       // бінарне повідомлення може бути лише input; декодер сам перевіряє довжину, версію, діапазони
       if (isBinary) {
@@ -184,7 +224,10 @@ export function createWsServer(server: Server, rooms: RoomManager) {
 
     socket.on('close', (code) => {
       clearTimeout(joinTimer);
-      console.log(`[ws] відключився ${state.id} (код ${code})`);
+      log.info({ playerId: state.id, roomId: state.room?.id, code }, 'відключився');
+      const left = (perIp.get(ip) ?? 1) - 1;
+      if (left > 0) perIp.set(ip, left);
+      else perIp.delete(ip);
       leaveRoom(state);
       states.delete(socket);
       statesById.delete(state.id);
@@ -208,7 +251,7 @@ export function createWsServer(server: Server, rooms: RoomManager) {
         return;
       case 'netsim':
         state.net = { lag: msg.lag, jitter: msg.jitter, drop: msg.drop };
-        console.log(`[ws] ${state.id}: netsim`, state.net);
+        log.debug({ playerId: state.id, net: state.net }, 'netsim');
         return;
       case 'input':
       case 'chat':
@@ -294,12 +337,18 @@ export function createWsServer(server: Server, rooms: RoomManager) {
     maxMissed: MAX_MISSED_PONGS,
   });
 
-  function close(): Promise<void> {
+  // вимкнення: кожному "shutdown" і close 1001, півсекунди чекаємо відповіді, решту рвемо
+  async function close(): Promise<void> {
     stopHeartbeat();
     for (const socket of wss.clients) {
-      socket.close(CLOSE.SHUTDOWN, 'server shutdown');
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(serverMessage({ type: 'shutdown', reason: 'server restart' }));
+        socket.close(CLOSE.SHUTDOWN, 'server shutdown');
+      }
     }
-    return new Promise((resolve) => wss.close(() => resolve()));
+    if (wss.clients.size > 0) await new Promise((resolve) => setTimeout(resolve, 500));
+    for (const socket of wss.clients) socket.terminate();
+    await new Promise<void>((resolve) => wss.close(() => resolve()));
   }
 
   // для /api/stats: байти кожного клієнта

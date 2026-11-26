@@ -38,7 +38,7 @@ function startServer(): Promise<ChildProcess> {
   // той самий node і ті самі прапорці (--import tsx), з якими запущено цей скрипт
   const child = spawn(process.execPath, [...process.execArgv, 'src/index.ts'], {
     cwd: serverDir,
-    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', MAX_PLAYERS: '1024', LOG_DIR: './logs/loadtest' },
+    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', MAX_PLAYERS: '1024', MAX_CONN_PER_IP: '10000', LOG_DIR: './logs/loadtest' },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   return new Promise((resolve, reject) => {

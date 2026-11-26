@@ -154,6 +154,7 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   z.object({ v, type: z.literal('events'), tick: TickSchema, list: z.array(GameEventSchema) }),
   z.object({ v, type: z.literal('pong'), t: z.number() }),
   z.object({ v, type: z.literal('error'), code: z.number().int(), message: z.string() }),
+  z.object({ v, type: z.literal('shutdown'), reason: z.string() }), // сервер вимикається (лаба 8)
   SnapshotSchema.extend({ v, type: z.literal('snapshot') }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;

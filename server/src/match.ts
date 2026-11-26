@@ -209,7 +209,7 @@ function remember(list: number[], value: number): void {
   if (list.length > 1800) list.shift();
 }
 
-function summary(list: readonly number[]): Summary | null {
+export function summary(list: readonly number[]): Summary | null {
   if (list.length === 0) return null;
   const avg = list.reduce((a, b) => a + b, 0) / list.length;
   const sd = Math.sqrt(list.reduce((a, b) => a + (b - avg) ** 2, 0) / list.length);

@@ -16,6 +16,13 @@ export default tseslint.config(
     rules: { 'no-var': 'error', 'prefer-const': 'error' },
   },
   {
+    // service worker (PWA): свої глобальні змінні
+    files: ['client/public/sw.js'],
+    languageOptions: {
+      globals: { self: 'readonly', caches: 'readonly', fetch: 'readonly', Response: 'readonly', location: 'readonly' },
+    },
+  },
+  {
     files: ['**/*.ts'],
     extends: [tseslint.configs.base],
     languageOptions: {

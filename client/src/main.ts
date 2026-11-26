@@ -10,7 +10,8 @@ import { NetClient } from './net/netclient.ts';
 import { findPreset } from './net/netgraph.ts';
 import { startGame } from './game.ts';
 import { el } from './dom.ts';
-import { NetsimSchema } from 'shared/protocol.ts';
+import { CLOSE, NetsimSchema } from 'shared/protocol.ts';
+import { z } from 'zod';
 
 // Порядок: екран завантаження -> лобі -> гра.
 //
@@ -119,6 +120,38 @@ async function loadAssets(failMode: string | null): Promise<Assets> {
   }
 }
 
+// версія збірки з /health (тег і коміт) - показуємо в лобі і в HUD
+async function fetchVersion(): Promise<string> {
+  try {
+    const res = await fetch('/health', { signal: AbortSignal.timeout(2000) });
+    const data: unknown = await res.json();
+    const parsed = z.object({ version: z.string(), commit: z.string() }).safeParse(data);
+    return parsed.success ? `${parsed.data.version} (${parsed.data.commit.slice(0, 7)})` : '?';
+  } catch {
+    return '?';
+  }
+}
+
+// чекаємо, поки сервер знову відповідає на /health, і перезавантажуємо сторінку (= лобі)
+async function backToLobbyWhenUp(): Promise<void> {
+  for (let delay = 1000; ; delay = Math.min(delay * 2, 8000)) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    const up = await fetch('/health', { signal: AbortSignal.timeout(2000) }).then(
+      (r) => r.ok,
+      () => false,
+    );
+    if (up) {
+      location.reload();
+      return;
+    }
+  }
+}
+
+// PWA: service worker лише у зібраній версії (у Vite на :5173 він би заважав)
+if ('serviceWorker' in navigator && location.port !== '5173') {
+  navigator.serviceWorker.register('/sw.js').catch((err: unknown) => console.warn('[pwa]', err));
+}
+
 async function main(): Promise<void> {
   let failMode = params.get('fail');
   let assets: Assets | null = null;
@@ -143,7 +176,8 @@ async function main(): Promise<void> {
   ctx.fillRect(0, 0, size.width, size.height);
   ctx.fillStyle = '#8890b0';
   ctx.font = '13px monospace';
-  ctx.fillText(`ассети завантажено за ${Math.round(assets.timeMs)} мс`, 16, size.height - 16);
+  const version = await fetchVersion();
+  ctx.fillText(`ассети завантажено за ${Math.round(assets.timeMs)} мс   версія ${version}`, 16, size.height - 16);
 
   const lobby = new Lobby(withQuery('/api/rooms', failMode === 'lobby' ? { delay: 3000 } : {}), {
     intervalMs: 3000,
@@ -174,8 +208,17 @@ async function main(): Promise<void> {
   const chat = createChatView(connection, el(document, '#chat', HTMLDivElement));
   connection.on('joined', () => chat.addLine(`ви в кімнаті "${room.name}"`, 'ok'));
 
+  // сервер вимикається (деплой) або кімнати вже немає - повертаємось у лобі
+  connection.on('shutdown', () => {
+    chat.addLine('сервер перезапускається, чекаю і повертаю в лобі...', 'bad');
+    void backToLobbyWhenUp();
+  });
+  connection.on('status', ({ status, code }) => {
+    if (status === 'closed' && code === CLOSE.ROOM_UNAVAILABLE) setTimeout(() => location.reload(), 2000);
+  });
+
   // світ рахує сервер: клієнт шле input і малює знімки
-  startGame({ ctx, size, assets, room, pilotName: name, audio, net, connection, netPreset: findPreset(netsim) });
+  startGame({ ctx, size, assets, room, pilotName: name, audio, net, connection, netPreset: findPreset(netsim), version });
 }
 
 void main();
