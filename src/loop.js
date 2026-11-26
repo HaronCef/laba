@@ -1,7 +1,14 @@
+// Ігровий цикл з фіксованим кроком симуляції (Glenn Fiedler, "Fix Your Timestep!")
+
+// Якщо кадр був дуже довгий (вкладка у фоні, фриз), беремо не більше 0.25 с,
+// інакше симуляція почне наздоганяти сотні кроків ("spiral of death").
 const MAX_DT = 0.25;
 
+// Скільки секунд історії кадрів тримати для статистики (для експерименту 2)
 const HISTORY_SECONDS = 10;
 
+// options.useInterval = true  -> setInterval(frame, 16) замість rAF (експеримент 2)
+// options.fixedStep = false   -> один simulate(dt) на кадр без акумулятора (експеримент 3)
 export function createLoop({
   step = 1 / 60,
   simulate,
@@ -15,20 +22,22 @@ export function createLoop({
   let lastTime = 0;
   let accumulator = 0;
 
+  // лічильники за поточну секунду
   let secondStart = 0;
   let stepsThisSecond = 0;
   let framesThisSecond = 0;
 
+  // історія тривалостей кадрів за останні 10 с: { time, dt }
   let history = [];
 
   const stats = {
     stepsPerSec: 0,
     framesPerSec: 0,
-    frameTime: 0, 
-    workTime: 0, 
+    frameTime: 0, // мс між попереднім і цим кадром
+    workTime: 0, // мс, скільки виконувався сам кадр (simulate + render)
     minDt: 0,
     maxDt: 0,
-    jitter: 0, 
+    jitter: 0, // стандартне відхилення dt за 10 с
   };
 
   function updateHistoryStats(now) {
@@ -75,6 +84,7 @@ export function createLoop({
         accumulator -= step;
         stepsThisSecond++;
       }
+      // alpha - яку частину наступного кроку ми вже "прожили" (від 0 до 1)
       render(accumulator / step);
     } else {
       simulate(dt);

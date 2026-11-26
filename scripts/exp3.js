@@ -1,7 +1,11 @@
 // Експеримент 3 без браузера: та сама integrate(), але різні частоти кадрів.
 // Запуск: npm run exp3
 
-import { createShip, integrate } from '../src/sim/ship.js';
+import { integrate } from '../src/sim/ship.js';
+
+function createShip() {
+  return { x: 0, y: 0, vx: 0, vy: 0, angle: -Math.PI / 2 };
+}
 
 const STEP = 1 / 60;
 const TIME = 5;
@@ -24,7 +28,7 @@ function makeFrames(fps, jitter) {
 }
 
 function runVariable(frames) {
-  let ship = createShip(0, 0);
+  let ship = createShip();
   let path = 0;
   for (const dt of frames) {
     ship = integrate(ship, controls, dt);
@@ -34,7 +38,7 @@ function runVariable(frames) {
 }
 
 function runFixed(frames) {
-  let ship = createShip(0, 0);
+  let ship = createShip();
   let path = 0;
   let acc = 0;
   let steps = 0;
