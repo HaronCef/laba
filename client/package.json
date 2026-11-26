@@ -1,18 +1,20 @@
 {
   "name": "client",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
-    "exp3": "node scripts/exp3.js"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json",
+    "exp3": "tsx scripts/exp3.ts"
   },
   "devDependencies": {
     "vite": "^7.0.0"
   },
   "dependencies": {
-    "shared": "*"
+    "shared": "*",
+    "zod": "^4.0.0"
   }
 }

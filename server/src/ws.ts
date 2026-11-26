@@ -1,0 +1,379 @@
+import type { Server } from 'node:http';
+import { WebSocketServer, WebSocket, type RawData } from 'ws';
+import { decodeInput } from 'shared/codec/binary.ts';
+import {
+  CLOSE,
+  parseClientMessage,
+  serverMessage,
+  type ClientMessage,
+  type Input,
+  type Netsim,
+} from 'shared/protocol.ts';
+import { asPlayerId, assertNever, type PlayerId } from 'shared/types.ts';
+import { NO_NETSIM, throughNetsim } from './netsim.ts';
+import type { PlayerConn, Room, RoomManager } from './rooms.ts';
+
+const MAX_MESSAGE_BYTES = 2048; // maxPayload для ws
+const JOIN_TIMEOUT_MS = 5000;
+const PING_INTERVAL_MS = 15000;
+const MAX_MISSED_PONGS = 2;
+
+// token bucket: у "відрі" size жетонів, щосекунди додається refill. Повідомлення забирає жетон.
+interface BucketRule {
+  readonly size: number;
+  readonly refill: number;
+}
+const CHAT_BUCKET: BucketRule = { size: 10, refill: 5 };
+const INPUT_BUCKET: BucketRule = { size: 45, refill: 35 }; // клієнт законно шле 30 input/с
+
+// повільний клієнт: неважливе (чат, знімки) не шлемо, а якщо зовсім не встигає - закриваємо
+const SLOW_BYTES = 64 * 1024;
+const TOO_SLOW_BYTES = 1024 * 1024;
+
+interface Bucket {
+  tokens: number;
+  last: number;
+}
+
+// Стан одного з'єднання. У JS я дописував його прямо в об'єкт сокета (socket.state = ...),
+// TypeScript на це сказав "у WebSocket немає поля state" - тепер він живе в окремій Map.
+interface ConnState {
+  readonly id: PlayerId;
+  readonly socket: WebSocket;
+  conn: PlayerConn | null;
+  room: Room | null;
+  missedPongs: number;
+  closing: boolean;
+  readonly chatBucket: Bucket;
+  readonly inputBucket: Bucket;
+  net: Netsim;
+  bytesIn: number;
+  bytesOut: number;
+}
+
+interface SendOptions {
+  important?: boolean;
+  droppable?: boolean;
+}
+
+let nextPlayerId = 1;
+
+function makeBucket(rule: BucketRule): Bucket {
+  return { tokens: rule.size, last: Date.now() };
+}
+
+function takeToken(bucket: Bucket, rule: BucketRule): boolean {
+  const now = Date.now();
+  bucket.tokens = Math.min(
+    rule.size,
+    bucket.tokens + ((now - bucket.last) / 1000) * rule.refill,
+  );
+  bucket.last = now;
+  if (bucket.tokens < 1) return false;
+  bucket.tokens -= 1;
+  return true;
+}
+
+// ws може дати Buffer, ArrayBuffer або масив Buffer (якщо повідомлення прийшло шматками).
+// У JS я рахував data.length - для ArrayBuffer це було б undefined, і лічильник став би NaN.
+function toBuffer(data: RawData): Buffer {
+  if (Buffer.isBuffer(data)) return data;
+  if (Array.isArray(data)) return Buffer.concat(data);
+  return Buffer.from(data);
+}
+
+export function createWsServer(server: Server, rooms: RoomManager) {
+  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: MAX_MESSAGE_BYTES });
+  const states = new Map<WebSocket, ConnState>();
+  const stats = { droppedForSlowClients: 0 };
+
+  // ---------- відправка з урахуванням повільних клієнтів і штучної мережі ----------
+
+  function send(
+    state: ConnState,
+    data: string | ArrayBuffer,
+    { important = true, droppable = false }: SendOptions = {},
+  ): void {
+    throughNetsim(
+      state.net,
+      () => {
+        const socket = state.socket;
+        if (socket.readyState !== WebSocket.OPEN) return;
+        const queued = socket.bufferedAmount;
+        if (queued > TOO_SLOW_BYTES) {
+          socket.close(CLOSE.SLOW_CLIENT, 'too slow');
+          return;
+        }
+        if (queued > SLOW_BYTES && !important) {
+          stats.droppedForSlowClients++;
+          return;
+        }
+        state.bytesOut +=
+          typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength;
+        socket.send(data);
+      },
+      { droppable },
+    );
+  }
+
+  function closeWithError(state: ConnState, code: number, reason: string): void {
+    if (state.closing) return;
+    state.closing = true;
+    console.warn(`[ws] закриваю ${state.id}: ${code} ${reason}`);
+    if (state.socket.readyState === WebSocket.OPEN) {
+      state.socket.send(serverMessage({ type: 'error', code, message: reason }));
+      state.socket.close(code, reason.slice(0, 120)); // reason у кадрі close - до 123 байт
+    }
+  }
+
+  // ---------- кімнати: розсилка roster і чату за їхніми подіями ----------
+
+  function wireRoom(room: Room): void {
+    const sendRoster = (): void => {
+      const text = serverMessage({ type: 'roster', players: room.roster() });
+      for (const { conn } of room.players.values()) conn.sendText(text);
+    };
+    room.on('join', sendRoster);
+    room.on('leave', sendRoster);
+    room.on('chat', (from, text) => {
+      const msg = serverMessage({ type: 'chat', from: from.name, text, t: Date.now() });
+      for (const member of room.players.values()) {
+        const target = statesById.get(member.conn.id);
+        if (target) send(target, msg, { important: false });
+      }
+    });
+  }
+
+  const statesById = new Map<PlayerId, ConnState>();
+  for (const room of rooms.all()) wireRoom(room);
+  rooms.on('room', wireRoom);
+
+  // ---------- одне з'єднання ----------
+
+  wss.on('connection', (socket, req) => {
+    const state: ConnState = {
+      id: asPlayerId(nextPlayerId++),
+      socket,
+      conn: null,
+      room: null,
+      missedPongs: 0,
+      closing: false,
+      chatBucket: makeBucket(CHAT_BUCKET),
+      inputBucket: makeBucket(INPUT_BUCKET),
+      net: NO_NETSIM,
+      bytesIn: 0,
+      bytesOut: 0,
+    };
+    states.set(socket, state);
+    statesById.set(state.id, state);
+    console.log(`[ws] підключився ${state.id} (${req.socket.remoteAddress ?? '?'})`);
+
+    // без обробника 'error' помилка сокета звалила б увесь процес
+    socket.on('error', (err) => {
+      console.warn(`[ws] помилка сокета ${state.id}:`, err.message);
+    });
+
+    const joinTimer = setTimeout(() => {
+      closeWithError(state, CLOSE.JOIN_TIMEOUT, 'join timeout');
+    }, JOIN_TIMEOUT_MS);
+
+    socket.on('pong', () => {
+      state.missedPongs = 0;
+    });
+
+    socket.on('message', (data, isBinary) => {
+      if (state.closing) return; // вже закриваємо - решту ігноруємо
+      const bytes = toBuffer(data);
+      state.bytesIn += bytes.length;
+
+      // бінарне повідомлення може бути лише input; декодер сам перевіряє довжину, версію, діапазони
+      if (isBinary) {
+        if (!takeToken(state.inputBucket, INPUT_BUCKET)) {
+          closeWithError(state, CLOSE.RATE_LIMIT, 'too many inputs');
+          return;
+        }
+        const input = decodeInput(bytes);
+        if (!input.ok) {
+          closeWithError(state, CLOSE.BAD_MESSAGE, `bad binary input: ${input.error}`);
+          return;
+        }
+        receiveInput(state, input.value);
+        return;
+      }
+
+      // текст: unknown -> Zod. Винятків немає: або повідомлення, або код закриття.
+      const parsed = parseClientMessage(bytes.toString('utf8'));
+      if (!parsed.ok) {
+        closeWithError(state, parsed.error.code, parsed.error.reason);
+        return;
+      }
+      const msg = parsed.value;
+      const isInput = msg.type === 'input';
+      if (
+        !takeToken(
+          isInput ? state.inputBucket : state.chatBucket,
+          isInput ? INPUT_BUCKET : CHAT_BUCKET,
+        )
+      ) {
+        closeWithError(state, CLOSE.RATE_LIMIT, 'too many messages');
+        return;
+      }
+      handle(state, msg, joinTimer);
+    });
+
+    socket.on('close', (code) => {
+      clearTimeout(joinTimer);
+      console.log(`[ws] відключився ${state.id} (код ${code})`);
+      leaveRoom(state);
+      states.delete(socket);
+      statesById.delete(state.id);
+    });
+  });
+
+  // input теж проходить через штучну мережу (і може "загубитись")
+  function receiveInput(state: ConnState, input: Input): void {
+    const room = state.room;
+    if (!room) return;
+    throughNetsim(state.net, () => room.match?.pushInput(state.id, input), {
+      droppable: true,
+    });
+  }
+
+  function handle(state: ConnState, msg: ClientMessage, joinTimer: NodeJS.Timeout): void {
+    switch (msg.type) {
+      case 'join':
+        return join(state, msg, joinTimer);
+      case 'ping':
+        // відповідаємо через ту саму штучну мережу, тому RTT включає затримку
+        throughNetsim(state.net, () =>
+          send(state, serverMessage({ type: 'pong', t: msg.t })),
+        );
+        return;
+      case 'netsim':
+        state.net = { lag: msg.lag, jitter: msg.jitter, drop: msg.drop };
+        console.log(`[ws] ${state.id}: netsim`, state.net);
+        return;
+      case 'input':
+      case 'chat':
+      case 'leave':
+        return inRoom(state, msg);
+      default:
+        assertNever(msg); // новий тип повідомлення без обробника - помилка tsc
+    }
+  }
+
+  function join(
+    state: ConnState,
+    msg: Extract<ClientMessage, { type: 'join' }>,
+    joinTimer: NodeJS.Timeout,
+  ): void {
+    if (state.room) {
+      closeWithError(state, CLOSE.BAD_MESSAGE, 'already joined');
+      return;
+    }
+    const room = rooms.get(msg.room);
+    if (!room || room.isFull) {
+      closeWithError(
+        state,
+        CLOSE.ROOM_UNAVAILABLE,
+        room ? 'room is full' : 'no such room',
+      );
+      return;
+    }
+    clearTimeout(joinTimer);
+    if (msg.net) state.net = msg.net;
+    const conn: PlayerConn = {
+      id: state.id,
+      name: msg.name,
+      codec: msg.codec ?? 'binary',
+      sendSnapshot: (data) => send(state, data, { important: false, droppable: true }),
+      sendText: (text) => send(state, text),
+    };
+    state.conn = conn;
+    state.room = room;
+    const { ship, match } = room.add(conn); // створює корабель у матчі і шле roster усім
+    send(
+      state,
+      serverMessage({
+        type: 'joined',
+        room: room.toJSON(),
+        you: state.id,
+        shipId: ship.netId,
+        seed: match.seed,
+        tick: match.tick,
+      }),
+    );
+  }
+
+  // повідомлення, які мають сенс лише після join
+  function inRoom(
+    state: ConnState,
+    msg: Extract<ClientMessage, { type: 'input' | 'chat' | 'leave' }>,
+  ): void {
+    const { room, conn } = state;
+    if (!room || !conn) {
+      closeWithError(state, CLOSE.BAD_MESSAGE, 'join first');
+      return;
+    }
+    switch (msg.type) {
+      case 'input': {
+        const { seq, turn, thrust, fire, missile, flip } = msg;
+        receiveInput(state, { seq, turn, thrust, fire, missile, flip });
+        return;
+      }
+      case 'chat':
+        room.chat(conn, msg.text);
+        return;
+      case 'leave':
+        leaveRoom(state);
+        state.socket.close(CLOSE.NORMAL, 'bye');
+        return;
+      default:
+        assertNever(msg);
+    }
+  }
+
+  function leaveRoom(state: ConnState): void {
+    const room = state.room;
+    if (!room) return;
+    state.room = null;
+    room.remove(state.id);
+  }
+
+  // ---------- heartbeat ----------
+
+  const heartbeat = setInterval(() => {
+    for (const state of states.values()) {
+      if (state.missedPongs >= MAX_MISSED_PONGS) {
+        console.warn(`[ws] ${state.id} не відповідає на ping, розриваю`);
+        state.socket.terminate();
+        continue;
+      }
+      state.missedPongs++;
+      state.socket.ping();
+    }
+  }, PING_INTERVAL_MS);
+
+  function close(): Promise<void> {
+    clearInterval(heartbeat);
+    for (const socket of wss.clients) {
+      socket.close(CLOSE.SHUTDOWN, 'server shutdown');
+    }
+    return new Promise((resolve) => wss.close(() => resolve()));
+  }
+
+  // для /api/stats: байти кожного клієнта
+  function clientStats(): Array<Record<string, unknown>> {
+    return [...states.values()].map((s) => ({
+      id: s.id,
+      name: s.conn?.name ?? null,
+      room: s.room?.id ?? null,
+      codec: s.conn?.codec ?? null,
+      bytesIn: s.bytesIn,
+      bytesOut: s.bytesOut,
+      net: s.net,
+    }));
+  }
+
+  return { wss, close, stats, clientStats };
+}

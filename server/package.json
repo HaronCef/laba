@@ -1,17 +1,23 @@
 {
   "name": "server",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
-    "start": "node --env-file=.env src/index.js",
-    "dev": "node --env-file=.env --watch src/index.js",
-    "test": "node --test",
-    "make-big-log": "node --env-file=.env scripts/make-big-log.js",
-    "replay": "node --env-file=.env scripts/replay.js"
+    "start": "node --env-file=.env --import tsx src/index.ts",
+    "dev": "node --env-file=.env --import tsx --watch src/index.ts",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "make-big-log": "node --env-file=.env --import tsx scripts/make-big-log.ts",
+    "replay": "node --env-file=.env --import tsx scripts/replay.ts"
   },
   "dependencies": {
+    "shared": "*",
     "ws": "^8.18.0",
-    "shared": "*"
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.0"
   }
 }
