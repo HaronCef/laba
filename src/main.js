@@ -1,141 +1,177 @@
-import { createLoop } from './loop.js';
-import { createInput } from './input.js';
-import { Vector2 } from './sim/vector.js';
-import { createArena } from './sim/arena.js';
-import { World } from './sim/world.js';
-import { Ship } from './sim/ship.js';
 import { setupCanvas } from './render/canvas.js';
-import { createStars, drawBackground, drawWorld, drawHud } from './render/draw.js';
+import { drawLoading } from './render/draw.js';
+import { createArena } from './sim/arena.js';
+import { loadJson, loadAll } from './assets/loader.js';
+import { createAudio } from './audio.js';
+import { Lobby } from './lobby/lobby.js';
+import { createLobbyView } from './lobby/lobbyView.js';
+import { startGame } from './game.js';
+
+// Порядок: екран завантаження -> лобі -> гра.
+//
+// Параметри для перевірки (README, галерея збоїв):
+//   ?seq=1        - завантажувати по одному файлу (sequential await)
+//   ?delay=200    - кожна відповідь сервера на 200 мс пізніше
+//   ?fail=404     - спрайтшита не існує
+//   ?fail=timeout - arena.json відповідає довше за таймаут
+//   ?fail=abort   - завантаження скасовується посередині (або Esc під час завантаження)
+//   ?fail=json    - битий arena.json
+//   ?fail=flaky   - arena.json двічі відповідає 503, потім нормально (видно ретраї)
+//   ?fail=lobby   - список кімнат відповідає довше за таймаут лобі
 
 const params = new URLSearchParams(location.search);
-// Експерименти лаби 1: ?exp=1, ?exp=2, ?exp=3
-const exp = params.get('exp');
-// Баг з this (лаба 2): ?bug=this
-const bug = params.get('bug');
-
-const MODE_NAMES = {
-  1: 'exp 1: 100 ms блок кожен 60-й кадр',
-  2: 'exp 2: setInterval(frame, 16)',
-  3: 'exp 3: змінний крок, без акумулятора',
-};
+const sequential = params.get('seq') === '1';
+const delay = Number(params.get('delay') || 0);
 
 const canvas = document.getElementById('game');
+const ui = document.getElementById('ui');
 const arena = createArena(800, 600);
 const { ctx, size } = setupCanvas(canvas, (w, h) => {
   arena.width = w;
   arena.height = h;
 });
 
-const input = createInput(window);
-const stars = createStars(180);
+const audio = createAudio();
+// AudioContext можна запустити лише після дії гравця
+window.addEventListener('pointerdown', audio.unlock);
+window.addEventListener('keydown', audio.unlock);
 
-const world = new World(arena);
-const ship = world.spawn(new Ship(new Vector2(arena.width / 2, arena.height / 2)));
-const inputs = new Map(); // id корабля -> керування
+// додає ?delay=... / ?flaky=... до адреси
+function withQuery(url, extra) {
+  const parts = [];
+  if (delay) parts.push(`delay=${delay}`);
+  for (const [key, value] of Object.entries(extra)) parts.push(`${key}=${value}`);
+  return parts.length ? `${url}?${parts.join('&')}` : url;
+}
 
-// ---------- стрільба: тут живе баг з this ----------
-if (bug === 'this') {
-  // НАЇВНО: передаємо сам метод. Браузер викличе його з this === window,
-  // тому fire() запише window.shotQueued = true, а корабель не вистрілить.
-  window.addEventListener('keydown', ship.fire);
-} else {
-  // ФІКС: стрілка викликає метод як ship.fire(), тому this === ship
-  window.addEventListener('keydown', (event) => {
-    if (event.code === 'Space') ship.fire();
-    if (event.code === 'KeyE') ship.fireMissile();
+// чекає, поки на кнопку натиснуть (подія -> проміс)
+function waitForClick(button) {
+  return new Promise((resolve) => {
+    button.addEventListener('click', resolve, { once: true });
   });
 }
 
-// для експерименту 3 з лаби 1: шлях за 5 с тяги
-let thrustTime = 0;
-let distance = 0;
-let result5s = null;
-
-function readControls() {
-  return {
-    left: input.isDown('ArrowLeft') || input.isDown('KeyA'),
-    right: input.isDown('ArrowRight') || input.isDown('KeyD'),
-    thrust: input.isDown('ArrowUp') || input.isDown('KeyW'),
-    flip: input.justPressed('KeyS') || input.justPressed('ArrowDown'),
+async function loadAssets(failMode) {
+  const controller = new AbortController();
+  const onKey = (e) => {
+    if (e.code === 'Escape') {
+      controller.abort(new DOMException('гравець натиснув Esc', 'AbortError'));
+    }
   };
-}
+  window.addEventListener('keydown', onKey);
 
-function simulate(dt) {
-  if (input.justPressed('KeyR')) {
-    // корабель у центр і на місці (для замірів)
-    ship.pos = new Vector2(arena.width / 2, arena.height / 2);
-    ship.vel = new Vector2(0, 0);
-    ship.angle = -Math.PI / 2;
-    ship.savePrevious();
-    thrustTime = 0;
-    distance = 0;
-    result5s = null;
+  const state = { title: 'Завантаження...', progress: 0, lines: [], failed: false };
+  drawLoading(ctx, size.width, size.height, state);
+
+  let timeoutMs = 5000;
+  if (failMode === 'abort') {
+    // все повільне, а через 500 мс скасовуємо
+    setTimeout(
+      () =>
+        controller.abort(new DOMException('скасовано посередині (тест)', 'AbortError')),
+      500,
+    );
   }
 
-  const controls = readControls();
-  inputs.set(ship.id, controls);
-  world.step(dt, inputs);
+  try {
+    const manifest = await loadJson(withQuery('/assets/manifest.json', {}), {
+      signal: controller.signal,
+    });
 
-  if (controls.thrust && result5s === null) {
-    thrustTime += dt;
-    distance += ship.vel.length() * dt;
-    if (thrustTime >= 5 - 1e-9) {
-      result5s = distance;
-      console.log(`[exp3] за 5 с тяги пролетіли ${distance.toFixed(2)} px`);
+    // підміняємо адреси для тестів збоїв
+    const slow = failMode === 'abort' ? { delay: 1500 } : {};
+    manifest.arena = withQuery(manifest.arena, slow);
+    manifest.sprites.url = withQuery(manifest.sprites.url, slow);
+    for (const name in manifest.sounds) {
+      manifest.sounds[name] = withQuery(manifest.sounds[name], slow);
+    }
+    if (failMode === '404') manifest.sprites.url = '/assets/no-such-sprites.png';
+    if (failMode === 'json') manifest.arena = '/assets/broken.json';
+    if (failMode === 'flaky')
+      manifest.arena = withQuery('/assets/arena.json', { flaky: 2 });
+    if (failMode === 'timeout') {
+      manifest.arena = withQuery('/assets/arena.json', { delay: 3000 });
+      timeoutMs = 1000;
+    }
+
+    const assets = await loadAll(manifest, {
+      audioCtx: audio.ctx,
+      signal: controller.signal,
+      sequential,
+      timeoutMs,
+      onProgress(done, total, task, error) {
+        state.progress = done / total;
+        state.lines.push(error ? `✗ ${task.name}: ${error.message}` : `✓ ${task.name}`);
+        drawLoading(ctx, size.width, size.height, state);
+      },
+    });
+
+    const mode = sequential ? 'sequential' : 'concurrent';
+    console.log(`[loader] ${mode}: ${assets.timeMs.toFixed(1)} мс`);
+    state.title = `Готово за ${Math.round(assets.timeMs)} мс (${mode})`;
+    drawLoading(ctx, size.width, size.height, state);
+    return assets;
+  } catch (err) {
+    // Promise.all вже відхилився, але інші файли ще качаються - зупиняємо їх
+    controller.abort(
+      new DOMException('зупинено, бо інший файл не завантажився', 'AbortError'),
+    );
+    state.failed = true;
+    state.title = 'Не вдалося завантажити гру';
+    state.lines.push(`✗ ${err.name}: ${err.message}`);
+    drawLoading(ctx, size.width, size.height, state);
+    throw err;
+  } finally {
+    window.removeEventListener('keydown', onKey);
+  }
+}
+
+async function main() {
+  let failMode = params.get('fail');
+  let assets = null;
+
+  while (!assets) {
+    try {
+      assets = await loadAssets(failMode);
+    } catch (err) {
+      console.error('[loader]', err);
+      ui.innerHTML =
+        '<div class="panel retry"><button id="retry-btn">Retry</button></div>';
+      ui.hidden = false;
+      await waitForClick(document.getElementById('retry-btn'));
+      ui.hidden = true;
+      failMode = null; // у демо повторна спроба вже без симуляції збою
     }
   }
 
-  input.endStep();
+  audio.setBuffers(assets.sounds);
+
+  // під лобі - чистий фон і час завантаження внизу
+  ctx.fillStyle = '#05060f';
+  ctx.fillRect(0, 0, size.width, size.height);
+  ctx.fillStyle = '#8890b0';
+  ctx.font = '13px monospace';
+  ctx.fillText(
+    `ассети завантажено за ${Math.round(assets.timeMs)} мс`,
+    16,
+    size.height - 16,
+  );
+
+  const roomsUrl =
+    failMode === 'lobby'
+      ? withQuery('/api/rooms.json', { delay: 3000 })
+      : withQuery('/api/rooms.json', {});
+  const lobby = new Lobby(roomsUrl, { intervalMs: 3000, timeoutMs: 2000 });
+  createLobbyView(lobby, ui);
+  lobby.start();
+
+  // чекаємо одну подію "join" як проміс
+  const { room, name } = await new Promise((resolve) => {
+    lobby.addEventListener('join', (e) => resolve(e.detail), { once: true });
+  });
+
+  audio.unlock(); // клік по Join - це дія гравця, звук можна вмикати
+  startGame({ ctx, size, arena, assets, room, pilotName: name, audio });
 }
 
-let frameNumber = 0;
-
-function busyWait(ms) {
-  const end = performance.now() + ms;
-  while (performance.now() < end) {
-    // нічого не робимо, просто тримаємо потік
-  }
-}
-
-function render(alpha) {
-  frameNumber++;
-  if (exp === '1' && frameNumber % 60 === 0) {
-    busyWait(100);
-  }
-
-  const s = loop.stats;
-  const effects = [];
-  if (ship.effects.shield > 0) effects.push(`щит ${ship.effects.shield.toFixed(1)}`);
-  if (ship.effects.triple > 0) effects.push(`x3 ${ship.effects.triple.toFixed(1)}`);
-
-  const lines = [
-    `steps/s: ${s.stepsPerSec}   frames/s: ${s.framesPerSec}`,
-    `frame time: ${s.frameTime.toFixed(1)} ms (робота ${s.workTime.toFixed(2)} ms)`,
-    `рахунок: ${world.score}   хвиля: ${world.wave}   смертей: ${ship.deaths}`,
-    ship.isDead ? `респаун через ${ship.respawnTimer.toFixed(1)} с` : `hp: ${ship.hp}`,
-    `бонуси: ${effects.length ? effects.join(', ') : '-'}`,
-    `сутностей у світі: ${world.size}`,
-  ];
-  if (exp === '3') {
-    lines.push(
-      result5s === null ? 'шлях за 5 с: -' : `шлях за 5 с: ${result5s.toFixed(2)} px`,
-    );
-  }
-  if (MODE_NAMES[exp]) lines.push(MODE_NAMES[exp]);
-  if (bug === 'this') lines.push('?bug=this: Space не стріляє (this === window)');
-  lines.push('W тяга, A/D поворот, S розворот, Space постріл, E ракета');
-
-  drawBackground(ctx, size.width, size.height, stars);
-  drawWorld(ctx, world, alpha);
-  drawHud(ctx, lines);
-}
-
-const loop = createLoop({
-  step: 1 / 60,
-  simulate,
-  render,
-  useInterval: exp === '2',
-  fixedStep: exp !== '3',
-});
-
-loop.start();
+main();

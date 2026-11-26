@@ -1,0 +1,26 @@
+{
+  "sprites": {
+    "url": "/assets/sprites.png",
+    "frameSize": 64,
+    "frames": [
+      "ship",
+      "ship_thrust",
+      "bullet",
+      "missile",
+      "rock_big",
+      "rock_small",
+      "hunter_big",
+      "hunter_small",
+      "pickup_shield",
+      "pickup_triple"
+    ]
+  },
+  "sounds": {
+    "shoot": "/assets/sounds/shoot.wav",
+    "missile": "/assets/sounds/missile.wav",
+    "hit": "/assets/sounds/hit.wav",
+    "explosion": "/assets/sounds/explosion.wav",
+    "pickup": "/assets/sounds/pickup.wav"
+  },
+  "arena": "/assets/arena.json"
+}

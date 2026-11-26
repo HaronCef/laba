@@ -171,6 +171,7 @@ export class Ship extends Entity {
     } else {
       world.spawn(this.makeBullet(this.angle));
     }
+    world.emit('fired', { shipId: this.id, missile: false });
   }
 
   // ракета - це звичайна куля, до якої додали компонент homing
@@ -178,6 +179,7 @@ export class Ship extends Entity {
     const missile = this.makeBullet(this.angle, { ttl: 3, damage: 3, radius: 5 });
     missile.homing = makeHoming('asteroid', 4, 500);
     world.spawn(missile);
+    world.emit('fired', { shipId: this.id, missile: true });
   }
 
   respawn(world) {

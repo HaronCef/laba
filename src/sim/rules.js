@@ -18,7 +18,8 @@ function other(pair, one) {
 function destroyAsteroid(world, asteroid) {
   world.despawn(asteroid.id);
   world.spawn(new Explosion({ pos: asteroid.pos, count: asteroid.size * 10 }));
-  world.score += asteroid.size === 2 ? 50 : 100;
+  world.emit('exploded', { kind: 'asteroid', pos: asteroid.pos });
+  world.addScore(asteroid.size === 2 ? 50 : 100, asteroid.pos);
 
   // великий розпадається на два маленьких
   if (asteroid.size === 2) {
@@ -31,6 +32,7 @@ function destroyAsteroid(world, asteroid) {
 
 function destroyShip(world, ship) {
   world.spawn(new Explosion({ pos: ship.pos, count: 30, color: '#8fa2ff' }));
+  world.emit('exploded', { kind: 'ship', pos: ship.pos });
 }
 
 export function handleCollision(world, a, b) {
@@ -43,9 +45,11 @@ export function handleCollision(world, a, b) {
     const target = other(pair, bullet);
     if (target.kind === 'asteroid') {
       world.despawn(bullet.id);
+      world.emit('hit', { target: 'asteroid', pos: bullet.pos });
       if (target.takeDamage(bullet.damage)) destroyAsteroid(world, target);
     } else if (target.kind === 'ship' && target.id !== bullet.ownerId) {
       world.despawn(bullet.id);
+      world.emit('hit', { target: 'ship', pos: bullet.pos });
       if (target.takeDamage(bullet.damage * 10)) destroyShip(world, target);
     }
     return; // кулі не підбирають бонуси і не б'ються одна об одну
@@ -57,6 +61,7 @@ export function handleCollision(world, a, b) {
 
   // корабель + астероїд
   if (thing.kind === 'asteroid') {
+    world.emit('hit', { target: 'ship', pos: ship.pos });
     destroyAsteroid(world, thing);
     if (ship.takeDamage(thing.size === 2 ? 40 : 20)) destroyShip(world, ship);
     return;
@@ -66,5 +71,6 @@ export function handleCollision(world, a, b) {
   if (thing.pickup) {
     ship.applyPickup(thing.pickup);
     world.despawn(thing.id);
+    world.emit('pickup', { effect: thing.pickup.effect, pos: thing.pos });
   }
 }

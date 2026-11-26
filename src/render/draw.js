@@ -26,6 +26,18 @@ function interpolate(entity, alpha, arena) {
   };
 }
 
+// Малює кадр зі спрайтшита: drawImage з прямокутником-джерелом (sx, sy, sw, sh).
+// Кадри йдуть в один рядок, кожен frameSize x frameSize, носом вправо.
+function drawSprite(ctx, sprites, frame, p, size) {
+  const index = sprites.frames.indexOf(frame);
+  const fs = sprites.frameSize;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.angle);
+  ctx.drawImage(sprites.image, index * fs, 0, fs, fs, -size / 2, -size / 2, size, size);
+  ctx.restore();
+}
+
 // Зірки зберігаємо у відносних координатах (0..1), щоб при зміні розміру
 // вікна вони не збивались в один кут.
 export function createStars(count) {
@@ -156,9 +168,49 @@ function drawExplosion(ctx, explosion) {
   ctx.restore();
 }
 
-export function drawWorld(ctx, world, alpha) {
+function drawShield(ctx, ship, p) {
+  ctx.strokeStyle = 'rgba(120, 220, 255, 0.8)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, ship.radius + 8, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+// зі спрайтами
+function drawWithSprites(ctx, sprites, entity, p) {
+  switch (entity.kind) {
+    case 'ship':
+      if (entity.isDead) return;
+      drawSprite(ctx, sprites, entity.thrust ? 'ship_thrust' : 'ship', p, 44);
+      if (entity.effects.shield > 0) drawShield(ctx, entity, p);
+      break;
+    case 'bullet':
+      if (entity.homing) drawSprite(ctx, sprites, 'missile', p, 26);
+      else drawSprite(ctx, sprites, 'bullet', p, 10);
+      break;
+    case 'asteroid': {
+      const big = entity.size === 2;
+      const frame = (entity.homing ? 'hunter_' : 'rock_') + (big ? 'big' : 'small');
+      drawSprite(ctx, sprites, frame, p, entity.radius * 2.2);
+      break;
+    }
+    case 'pickup':
+      drawSprite(ctx, sprites, `pickup_${entity.pickup.effect}`, { ...p, angle: 0 }, 30);
+      break;
+    case 'explosion':
+      drawExplosion(ctx, entity);
+      break;
+  }
+}
+
+// sprites = null, якщо спрайтшит не завантажився - тоді малюємо фігурами, як у лабі 2
+export function drawWorld(ctx, world, alpha, sprites) {
   for (const entity of world) {
     const p = interpolate(entity, alpha, world.arena);
+    if (sprites) {
+      drawWithSprites(ctx, sprites, entity, p);
+      continue;
+    }
     switch (entity.kind) {
       case 'ship':
         if (!entity.isDead) drawShip(ctx, entity, p);
@@ -192,4 +244,33 @@ export function drawHud(ctx, lines) {
     ctx.fillText(lines[i], 20, 30 + i * lineHeight);
   }
   ctx.restore();
+}
+
+// Екран завантаження: справжній прогрес (скільки файлів уже готово) і список файлів
+export function drawLoading(ctx, width, height, state) {
+  ctx.fillStyle = '#05060f';
+  ctx.fillRect(0, 0, width, height);
+
+  const barW = Math.min(500, width - 80);
+  const x = (width - barW) / 2;
+  const y = height / 2 - 60;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 22px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(state.title, width / 2, y - 24);
+
+  ctx.strokeStyle = '#5b6cff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, barW, 22);
+  ctx.fillStyle = state.failed ? '#ff5a5a' : '#5b6cff';
+  ctx.fillRect(x + 3, y + 3, (barW - 6) * state.progress, 16);
+
+  ctx.font = '14px monospace';
+  ctx.textAlign = 'left';
+  state.lines.forEach((line, i) => {
+    ctx.fillStyle = line.startsWith('✗') ? '#ff8a8a' : '#9dff9d';
+    ctx.fillText(line, x, y + 50 + i * 20);
+  });
+  ctx.textAlign = 'start';
 }

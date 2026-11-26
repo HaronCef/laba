@@ -8,17 +8,32 @@ import { handleCollision } from './rules.js';
 
 const NO_INPUT = { left: false, right: false, thrust: false, flip: false };
 
-export class World {
+const DEFAULT_CONFIG = { waveBase: 3, hunterEvery: 3, pickupEvery: 8 };
+
+// World - це ще й EventTarget: симуляція лише повідомляє "щось сталося"
+// ("fired", "hit", "exploded", "pickup", "score"), а звук і HUD самі на це підписуються.
+export class World extends EventTarget {
   #entities = new Map(); // id -> Entity
   #toRemove = new Set(); // id тих, кого прибрати в кінці кроку
   #toAdd = []; // створені під час кроку, додаються в кінці
   #stepping = false;
 
-  constructor(arena) {
+  constructor(arena, config = {}) {
+    super();
     this.arena = arena;
+    this.config = { ...DEFAULT_CONFIG, ...config };
     this.score = 0;
     this.wave = 0;
-    this.pickupTimer = 6;
+    this.pickupTimer = this.config.pickupEvery;
+  }
+
+  emit(type, detail = {}) {
+    this.dispatchEvent(new CustomEvent(type, { detail }));
+  }
+
+  addScore(delta, pos) {
+    this.score += delta;
+    this.emit('score', { score: this.score, delta, pos });
   }
 
   get size() {
@@ -109,12 +124,12 @@ export class World {
   spawnStuff(dt) {
     if (this.countKind('asteroid') === 0 && this.#toAdd.length === 0) {
       this.wave++;
-      this.spawnWave(3 + this.wave);
+      this.spawnWave(this.config.waveBase + this.wave);
     }
 
     this.pickupTimer -= dt;
     if (this.pickupTimer <= 0) {
-      this.pickupTimer = 8;
+      this.pickupTimer = this.config.pickupEvery;
       if (this.countKind('pickup') < 2) {
         const effect = Math.random() < 0.5 ? 'shield' : 'triple';
         this.spawn(new Pickup({ pos: this.findSafeSpot(80), effect }));
@@ -128,8 +143,9 @@ export class World {
       const vel = Vector2.fromAngle(Math.random() * Math.PI * 2, 30 + Math.random() * 50);
       const asteroid = new Asteroid({ pos, vel, size: 2 });
 
-      // кожен третій - "мисливець", летить за кораблем
-      if (i % 3 === 2) {
+      // кожен hunterEvery-й - "мисливець", летить за кораблем (0 - без мисливців)
+      const every = this.config.hunterEvery;
+      if (every > 0 && i % every === every - 1) {
         asteroid.homing = makeHoming('ship', 0.8, 400);
       }
       this.spawn(asteroid);
