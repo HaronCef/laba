@@ -4,6 +4,7 @@ import { fetchJson } from '../assets/loader.js';
 //   "rooms"  - прийшов новий список кімнат (detail.rooms)
 //   "error"  - запит не вдався (detail.error)
 //   "join"   - гравець увійшов у кімнату (detail.room, detail.name)
+//   "created" - створили нову кімнату (detail.room)
 export class Lobby extends EventTarget {
   #controller = null; // скасовує всі запити лобі, коли гравець пішов
   #timer = 0;
@@ -41,6 +42,21 @@ export class Lobby extends EventTarget {
       if (this.#controller.signal.aborted) return; // ми самі пішли з лобі - це не помилка
       this.dispatchEvent(new CustomEvent('error', { detail: { error: err } }));
     }
+  }
+
+  // POST /api/rooms - нова кімната на сервері
+  async create(name) {
+    const response = await fetch(this.url.split('?')[0], {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, maxPlayers: 4 }),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    this.dispatchEvent(new CustomEvent('created', { detail: { room: data } }));
+    await this.refresh();
+    return data;
   }
 
   join(roomId, name) {

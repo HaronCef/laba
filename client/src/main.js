@@ -5,6 +5,8 @@ import { loadJson, loadAll } from './assets/loader.js';
 import { createAudio } from './audio.js';
 import { Lobby } from './lobby/lobby.js';
 import { createLobbyView } from './lobby/lobbyView.js';
+import { createChatView } from './lobby/chatView.js';
+import { Connection, serverUrl } from './net/connection.js';
 import { startGame } from './game.js';
 
 // Порядок: екран завантаження -> лобі -> гра.
@@ -157,10 +159,7 @@ async function main() {
     size.height - 16,
   );
 
-  const roomsUrl =
-    failMode === 'lobby'
-      ? withQuery('/api/rooms.json', { delay: 3000 })
-      : withQuery('/api/rooms.json', {});
+  const roomsUrl = withQuery('/api/rooms', failMode === 'lobby' ? { delay: 3000 } : {});
   const lobby = new Lobby(roomsUrl, { intervalMs: 3000, timeoutMs: 2000 });
   createLobbyView(lobby, ui);
   lobby.start();
@@ -171,6 +170,18 @@ async function main() {
   });
 
   audio.unlock(); // клік по Join - це дія гравця, звук можна вмикати
+
+  // WebSocket: при кожному (пере)підключенні заново кажемо серверу, в яку кімнату йдемо
+  const connection = new Connection(serverUrl());
+  connection.addEventListener('open', () => {
+    connection.send('join', { room: room.id, name });
+  });
+  const chat = createChatView(connection, document.getElementById('chat'));
+  connection.addEventListener('joined', () =>
+    chat.addLine(`ви в кімнаті "${room.name}"`, 'ok'),
+  );
+
+  // координати кораблів поки не передаються (це лаба 5) - гра локальна
   startGame({ ctx, size, arena, assets, room, pilotName: name, audio });
 }
 

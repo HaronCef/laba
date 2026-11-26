@@ -1,0 +1,16 @@
+{
+  "name": "server",
+  "private": true,
+  "version": "0.4.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env src/index.js",
+    "dev": "node --env-file=.env --watch src/index.js",
+    "test": "node --test",
+    "make-big-log": "node --env-file=.env scripts/make-big-log.js",
+    "replay": "node --env-file=.env scripts/replay.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

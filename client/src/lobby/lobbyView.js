@@ -9,6 +9,10 @@ export function createLobbyView(lobby, root) {
       <h2>Кімнати</h2>
       <ul id="room-list"><li>Завантаження...</li></ul>
       <p id="lobby-status"></p>
+      <div class="row">
+        <input id="new-room" maxlength="24" placeholder="Нова кімната" />
+        <button id="create-btn">Створити</button>
+      </div>
       <button id="join-btn" disabled>Join</button>
     </div>
   `;
@@ -18,6 +22,8 @@ export function createLobbyView(lobby, root) {
   const status = root.querySelector('#lobby-status');
   const joinBtn = root.querySelector('#join-btn');
   const nameInput = root.querySelector('#pilot-name');
+  const newRoomInput = root.querySelector('#new-room');
+  const createBtn = root.querySelector('#create-btn');
   let selectedId = null;
 
   function renderRooms(rooms) {
@@ -49,6 +55,27 @@ export function createLobbyView(lobby, root) {
   lobby.addEventListener('join', () => {
     root.hidden = true;
     root.innerHTML = '';
+  });
+
+  // кімнату, яку щойно створили, одразу вибираємо
+  lobby.addEventListener('created', (e) => {
+    selectedId = e.detail.room.id;
+    joinBtn.disabled = false;
+  });
+
+  createBtn.addEventListener('click', async () => {
+    const name = newRoomInput.value.trim();
+    if (!name) return;
+    createBtn.disabled = true;
+    try {
+      await lobby.create(name);
+      newRoomInput.value = '';
+    } catch (err) {
+      status.textContent = `Не вдалося створити кімнату: ${err.message}`;
+      status.className = 'error';
+    } finally {
+      createBtn.disabled = false;
+    }
   });
 
   joinBtn.addEventListener('click', () => {

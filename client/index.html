@@ -89,6 +89,54 @@
         border-radius: 4px;
         cursor: pointer;
       }
+      .row {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+      .row input {
+        flex: 1;
+        margin: 0;
+      }
+      #chat {
+        position: fixed;
+        left: 10px;
+        bottom: 10px;
+        width: 340px;
+      }
+      #chat[hidden] {
+        display: none;
+      }
+      .chat {
+        background: rgba(10, 12, 30, 0.85);
+        border: 1px solid #333a66;
+        border-radius: 6px;
+        padding: 8px;
+        font-size: 12px;
+      }
+      #chat-status.ok,
+      .chat .ok {
+        color: #9dff9d;
+      }
+      #chat-status.bad,
+      .chat .bad {
+        color: #ff8a8a;
+      }
+      #chat-roster {
+        color: #c9d6ff;
+        margin: 4px 0;
+      }
+      #chat-log {
+        height: 120px;
+        overflow-y: auto;
+        margin-bottom: 6px;
+      }
+      #chat-input {
+        width: 100%;
+        box-sizing: border-box;
+        font: inherit;
+        padding: 4px;
+      }
       button:disabled {
         background: #333a66;
         cursor: default;
@@ -98,6 +146,7 @@
   <body>
     <canvas id="game"></canvas>
     <div id="ui" hidden></div>
+    <div id="chat" hidden></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
