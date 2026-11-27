@@ -84,8 +84,8 @@ const mutation: fc.Arbitrary<{ name: string; apply: Mutation }> = fc.oneof(
 );
 
 describe('властивості протоколу (fast-check)', () => {
-  it('будь-яке згенероване правильне повідомлення проходить і не змінюється', async () => {
-    await fc.assert(
+  it('будь-яке згенероване правильне повідомлення проходить і не змінюється', () => {
+    fc.assert(
       fc.property(validMessage, (msg) => {
         const text = clientMessage(msg);
         const result = parseClientMessage(text);
@@ -97,8 +97,8 @@ describe('властивості протоколу (fast-check)', () => {
     );
   });
 
-  it('мутоване повідомлення відхиляється з кодом 4000/4001/4002, без винятків', async () => {
-    await fc.assert(
+  it('мутоване повідомлення відхиляється з кодом 4000/4001/4002, без винятків', () => {
+    fc.assert(
       fc.property(validMessage, mutation, (msg, mut) => {
         const broken = mut.apply({ ...msg });
         const result = parseClientMessage(JSON.stringify(broken));
@@ -109,8 +109,8 @@ describe('властивості протоколу (fast-check)', () => {
     );
   });
 
-  it('будь-який рядок: parseClientMessage ніколи не кидає виняток', async () => {
-    await fc.assert(
+  it('будь-який рядок: parseClientMessage ніколи не кидає виняток', () => {
+    fc.assert(
       fc.property(fc.oneof(fc.string(), fc.json()), (raw) => {
         expect(() => parseClientMessage(raw)).not.toThrow();
       }),

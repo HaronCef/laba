@@ -97,8 +97,8 @@ describe('бінарний кодек', () => {
 });
 
 describe('властивості кодека (fast-check)', () => {
-  it('round-trip знімка: усе точно, крім кута - він квантується до 0.001 рад', async () => {
-    await fc.assert(
+  it('round-trip знімка: усе точно, крім кута - він квантується до 0.001 рад', () => {
+    fc.assert(
       fc.property(snapshotArb, (snap) => {
         const back = decodeSnapshot(encodeSnapshot(snap));
         expect(back.ok).toBe(true);
@@ -118,16 +118,16 @@ describe('властивості кодека (fast-check)', () => {
     );
   });
 
-  it('довжина закодованого знімка = 12 + 26 * кількість (як у специфікації)', async () => {
-    await fc.assert(
+  it('довжина закодованого знімка = 12 + 26 * кількість (як у специфікації)', () => {
+    fc.assert(
       fc.property(snapshotArb, (snap) => {
         expect(encodeSnapshot(snap).byteLength).toBe(HEADER + ENTITY * snap.entities.length);
       }),
     );
   });
 
-  it('input: round-trip для будь-якого правильного input, завжди 8 байт', async () => {
-    await fc.assert(
+  it('input: round-trip для будь-якого правильного input, завжди 8 байт', () => {
+    fc.assert(
       fc.property(inputArb, (input) => {
         const bytes = encodeInput(input);
         expect(bytes.byteLength).toBe(8);
@@ -136,8 +136,8 @@ describe('властивості кодека (fast-check)', () => {
     );
   });
 
-  it('сміття замість байтів: не падає, а повертає типізовану помилку (ok: false + рядок)', async () => {
-    await fc.assert(
+  it('сміття замість байтів: не падає, а повертає типізовану помилку (ok: false + рядок)', () => {
+    fc.assert(
       fc.property(fc.uint8Array({ maxLength: 400 }), (bytes) => {
         for (const result of [decodeSnapshot(bytes), decodeInput(bytes)]) {
           if (!result.ok) expect(typeof result.error).toBe('string');
@@ -147,9 +147,9 @@ describe('властивості кодека (fast-check)', () => {
     );
   });
 
-  it('сміття всередині правильного заголовка (найкраще ловить помилки розбору сутностей)', async () => {
+  it('сміття всередині правильного заголовка (найкраще ловить помилки розбору сутностей)', () => {
     const header = new Uint8Array(encodeSnapshot({ ...snapshot, entities: [] }));
-    await fc.assert(
+    fc.assert(
       fc.property(fc.integer({ min: 0, max: 20 }), fc.uint8Array({ maxLength: 26 * 20 }), (count, body) => {
         const bytes = new Uint8Array(HEADER + body.length);
         bytes.set(header);

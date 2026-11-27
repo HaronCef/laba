@@ -63,13 +63,13 @@ describe('spatial hash (лаба 7)', () => {
     expect(findPairsHashed(list)).toHaveLength(1);
   });
 
-  it('властивість: ті самі пари і в тому ж порядку, що й O(n^2)', async () => {
+  it('властивість: ті самі пари і в тому ж порядку, що й O(n^2)', () => {
     const entity = fc.record({
       x: fc.double({ min: -50, max: 1330, noNaN: true }),
       y: fc.double({ min: -50, max: 770, noNaN: true }),
       kind: fc.constantFrom('big', 'small', 'ship', 'bullet'),
     });
-    await fc.assert(
+    fc.assert(
       fc.property(fc.array(entity, { maxLength: 80 }), (specs) => {
         const list = specs.map(({ x, y, kind }) => {
           const pos = new Vector2(x, y);

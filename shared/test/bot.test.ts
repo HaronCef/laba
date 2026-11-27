@@ -95,8 +95,8 @@ describe('властивість: кораблі не виходять за ар
     flip: fc.boolean(),
   });
 
-  it('1000 випадкових input підряд: 0 <= x < 1280, 0 <= y < 720 на кожному кроці', async () => {
-    await fc.assert(
+  it('1000 випадкових input підряд: 0 <= x < 1280, 0 <= y < 720 на кожному кроці', () => {
+    fc.assert(
       fc.property(
         fc.double({ min: 0, max: ARENA.width - 0.001, noNaN: true }),
         fc.double({ min: 0, max: ARENA.height - 0.001, noNaN: true }),
